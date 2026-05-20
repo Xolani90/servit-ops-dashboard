@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="referrer" content="no-referrer-when-downgrade">
+<meta name="theme-color" content="#1A3A2A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Servit">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Servit — SA's Service Marketplace</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+
+<script>
+  // Supabase configuration
+  const SUPABASE_URL = 'https://ujisnnkpkwzcgphiaxvy.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqaXNubmtwa3d6Y2dwaGlheHZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1ODIxODcsImV4cCI6MjA5MTE1ODE4N30.s3WVvb3uMcVT_9asGttCKTmbHMIbZzIv8pq2JEamyH4';
+
+  // Yoco configuration
+  // FIX C-01: Set YOCO_PUBLIC_KEY in Netlify → Site Settings → Environment Variables.
+  // The build plugin (netlify.toml) injects window.__YOCO_PUBLIC_KEY__ at deploy time.
+  // NEVER hardcode a live or test key here — it is visible to all users in DevTools.
+  const YOCO_PUBLIC_KEY = window.__YOCO_PUBLIC_KEY__ || "";
+  const YOCO_SANDBOX = false; // FIX C-01: Always false in production
+  if (!YOCO_PUBLIC_KEY) console.error('[Servit] YOCO_PUBLIC_KEY env var not set — payments will fail.');
+  const APP_URL = window.location.origin;
+
+  // Web Push VAPID public key
+  const VAPID_PUBLIC_KEY = 'BCi35GsieV8IcLKjEQdMNI1hE9HtERdLNKWv23Th6YL1Oo5Br3OjABMDYj8Z7WZegiaiTJNUIz6U-lIAcrSDbKQ';
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+// ─── FIX #8: Initialize Supabase client ─────────────────────────────────────
+// BUG: window.db was referenced throughout index.html (db.auth.signInWithOtp,
+//      db.auth.signInWithPassword, etc.) and in app.js (window.db), but the
+//      client was NEVER created — only the CDN script was loaded. Every auth
+//      call crashed with "db is not defined" / "Cannot read properties of undefined".
+// FIX: Call supabase.createClient() immediately after the CDN script loads and
+//      expose it as both `db` (for index.html inline scripts) and `window.db`
+//      (for app.js which does `const supabaseClient = window.db`).
+window.db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+  realtime: {
+    params: { eventsPerSecond: 10 },
+  },
+});
+const db = window.db; // alias for index.html inline auth functions
+// ────────────────────────────────────────────────────────────────────────────
+</script>
+
+<script>
+// XSS sanitiser
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Auth tab switching
+function switchAuthTab(tab, btn) {
+  document.querySelectorAll('.auth-tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('auth-login').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('auth-signup').style.display = tab === 'signup' ? 'block' : 'none';
+  const msg = document.getElementById('auth-msg');
+  if (msg) msg.textContent = '';
+}
+
+function togglePw(inputId, eyeEl) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  if (inp.type === 'password') { inp.type = 'text'; eyeEl.classList.add('visible'); }
+  else { inp.type = 'password'; eyeEl.classList.remove('visible'); }
+}
+
+function selectRole(role, btn) {
+  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('signup-role').value = role;
+  const fixerFields = document.getElementById('fixer-signup-fields');
+  const customerFields = document.getElementById('customer-signup-fields');
+  if (fixerFields) fixerFields.style.display = role === 'fixer' ? 'block' : 'none';
+  if (customerFields) customerFields.style.display = role === 'fixer' ? 'none' : 'block';
+}
+
+function selectFixerType(type, btn) {
+  const contractorBtn = document.getElementById('ftype-contractor');
+  const businessBtn = document.getElementById('ftype-business');
+  if (contractorBtn) {
+    contractorBtn.style.background = type === 'contractor' ? 'var(--forest)' : 'var(--cream)';
+    contractorBtn.style.color = type === 'contractor' ? '#fff' : 'var(--text-mid)';
+    contractorBtn.style.borderColor = type === 'contractor' ? 'var(--forest)' : 'var(--border)';
+  }
+  if (businessBtn) {
+    businessBtn.style.background = type === 'business' ? 'var(--forest)' : 'var(--cream)';
+    businessBtn.style.color = type === 'business' ? '#fff' : 'var(--text-mid)';
+    businessBtn.style.borderColor = type === 'business' ? 'var(--forest)' : 'var(--border)';
+  }
+  const typeInput = document.getElementById('signup-fixer-type');
+  if (typeInput) typeInput.value = type;
+  const bizFields = document.getElementById('signup-biz-fields');
+  if (bizFields) bizFields.style.display = type === 'business' ? 'block' : 'none';
+  const idField = document.getElementById('signup-id-field');
+  if (idField) idField.style.display = type === 'business' ? 'none' : 'block';
+  const contractorDocs = document.getElementById('signup-contractor-docs');
+  const businessDocs = document.getElementById('signup-business-docs');
+  if (contractorDocs) contractorDocs.style.display = type === 'business' ? 'none' : 'block';
+  if (businessDocs) businessDocs.style.display = type === 'business' ? 'block' : 'none';
+}
+
+let _signupFiles = {};
+
+function handleSignupFileUpload(input, zoneId, docType) {
+  const file = input.files[0];
+  if (!file) return;
+  // FIX L-03: Client-side file size validation — reject files over 10MB before upload
+  const MAX_FILE_SIZE_MB = 10;
+  if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+    showToast(`File too large — maximum is ${MAX_FILE_SIZE_MB}MB. Please compress or use a smaller file.`, 'error');
+    input.value = '';
+    return;
+  }
+  _signupFiles[docType] = file;
+  const zone = document.getElementById(zoneId);
+  if (zone) {
+    zone.classList.add('done');
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+    zone.innerHTML = '<div style="font-size:22px;margin-bottom:4px">✅</div>'
+      + '<div style="font-size:13px;font-weight:600;color:var(--success)">' + file.name + '</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">' + sizeMB + ' MB · Tap to replace</div>';
+    zone.onclick = () => input.click();
+  }
+}
+
+function autoFillSignupBranchCode(bank) {
+  const codes = {'Absa':'632005','FNB':'250655','Nedbank':'198765','Standard Bank':'051001','Capitec':'470010','TymeBank':'678910','African Bank':'430000','Discovery Bank':'679000','Investec':'580105','SA Post Bank':'460005'};
+  const el = document.getElementById('signup-branch');
+  if (el) el.value = codes[bank] || '';
+}
+
+function sendMagicLink() {
+  if (typeof db === 'undefined') { setTimeout(sendMagicLink, 200); return; }
+  const emailEl = document.getElementById('login-email');
+  const email = emailEl ? emailEl.value.trim() : '';
+  const msgEl = document.getElementById('auth-msg');
+  if (!email) { if (msgEl) { msgEl.textContent = 'Enter your email address first.'; msgEl.className = 'auth-msg error'; } return; }
+  const spinner = document.getElementById('auth-spinner');
+  if (spinner) { spinner.style.display = 'block'; spinner.textContent = 'Sending magic link...'; }
+  db.auth.signInWithOtp({ email }).then(({ error }) => {
+    if (spinner) spinner.style.display = 'none';
+    if (msgEl) { msgEl.textContent = error ? error.message : '✓ Magic link sent! Check your email.'; msgEl.className = error ? 'auth-msg error' : 'auth-msg'; }
+  }).catch(err => {
+    if (spinner) spinner.style.display = 'none';
+    if (msgEl) { msgEl.textContent = 'Failed to send magic link. Please try again.'; msgEl.className = 'auth-msg error'; }
+  });
+}
+
+function filterCity(v) {
+  if (typeof currentCity !== 'undefined') {
+    currentCity = v;
+  } else {
+    window._pendingCity = v;
+  }
+  const lbl = document.getElementById('home-location-label');
+  if (lbl) lbl.textContent = v || 'All areas';
+  if (typeof initHome === 'function' && document.getElementById('screen-home')?.classList.contains('active')) {
+    initHome();
+  }
+}
+
+function filterCat(el, cat) {
+  if (typeof currentCat !== 'undefined') currentCat = cat;
+}
+
+function filterServices(v) {
+  if (typeof currentSearch !== 'undefined') currentSearch = v;
+}
+
+async function signUp() {
+  if (typeof db === 'undefined') { setTimeout(signUp, 200); return; }
+  return _signUpImpl();
+}
+
+let _signInAttempts = 0;
+let _signInLockoutUntil = 0;
+
+async function signIn() {
+  if (typeof db === 'undefined') {
+    setTimeout(signIn, 200);
+    return;
+  }
+  const now = Date.now();
+  if (_signInLockoutUntil && now < _signInLockoutUntil) {
+    const remaining = Math.ceil((_signInLockoutUntil - now) / 1000);
+    const msgEl = document.getElementById('auth-msg');
+    if (msgEl) { msgEl.textContent = 'Too many attempts. Try again in ' + remaining + 's.'; msgEl.className = 'auth-msg error'; }
+    return;
+  }
+  const emailEl = document.getElementById('login-email');
+  const passEl = document.getElementById('login-password');
+  const email = emailEl ? emailEl.value.trim() : '';
+  const password = passEl ? passEl.value : '';
+  const msgEl = document.getElementById('auth-msg');
+  const spinner = document.getElementById('auth-spinner');
+  const loginBtn = document.getElementById('login-btn');
+  if (!email || !password) {
+    if (msgEl) { msgEl.textContent = 'Please enter your email and password.'; msgEl.className = 'auth-msg error'; }
+    return;
+  }
+  if (spinner) { spinner.style.display = 'block'; spinner.textContent = 'Signing you in...'; }
+  if (loginBtn) loginBtn.disabled = true;
+  const timeout = setTimeout(() => {
+    if (spinner) spinner.style.display = 'none';
+    if (loginBtn) loginBtn.disabled = false;
+    if (msgEl) { msgEl.textContent = 'Sign in timed out. Please try again.'; msgEl.className = 'auth-msg error'; }
+  }, 10000);
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  clearTimeout(timeout);
+  if (spinner) spinner.style.display = 'none';
+  if (loginBtn) loginBtn.disabled = false;
+  if (error) {
+    _signInAttempts++;
+    if (_signInAttempts >= 5) { _signInLockoutUntil = Date.now() + 60000; _signInAttempts = 0; }
+    // FIX M-02: Hint about magic link if password auth fails
+    const _rawErr = error.message || "";
+    let _fxMsg = typeof friendlyAuthError === "function" ? friendlyAuthError(_rawErr) : _rawErr;
+    if (_rawErr.toLowerCase().includes("invalid") || _rawErr.toLowerCase().includes("credentials")) {
+      _fxMsg += " If you signed up with a magic link, tap \"Forgot password?\" below.";
+    }
+    if (msgEl) { msgEl.textContent = _fxMsg; msgEl.className = "auth-msg error"; }
+  } else {
+    _signInAttempts = 0;
+    _signInLockoutUntil = 0;
+  }
+}
+</script>
+
+<style>
+/* Your existing styles remain the same - keeping minimal for brevity */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --gold:#C9943A;--gold-light:#E8C47A;--gold-dark:#8B6420;
+  --forest:#1A3A2A;--forest-mid:#2D5A3D;--forest-light:#3D7A52;
+  --cream:#FAF7F2;--cream-dark:#F0EBE0;--warm-white:#FFFDF9;
+  --text-dark:#1C1A16;--text-mid:#4A4640;--text-muted:#8A857C;
+  --card-bg:#FFFFFF;--border:#E8E2D8;
+  --success:#2D7A4F;--danger:#C0392B;--info:#1A5A8A;
+  --r-sm:8px;--r-md:12px;--r-lg:18px;--r-xl:24px;
+  --shadow:0 2px 16px rgba(28,26,22,0.08);
+  --shadow-lg:0 8px 40px rgba(28,26,22,0.14);
+}
+html,body{height:100%;font-family:'DM Sans',sans-serif;color:var(--text-dark);background:var(--cream)}
+h1,h2,h3,.serif{font-family:'Playfair Display',serif}
+
+.app{display:flex;flex-direction:column;height:100vh;max-width:480px;margin:0 auto;background:var(--warm-white);position:relative;overflow:hidden}
+.screen{position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;overflow-x:hidden;padding-bottom:80px;display:none}
+.screen.active {
+  display: block;
+  animation: fadeUp .22s ease;
+}
+.screen-flex.active {
+  display: flex;
+  flex-direction: column;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes ripple{0%{transform:scale(1);opacity:.4}100%{transform:scale(1.4);opacity:0}}
+
+.cat-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px 8px;background:var(--card-bg);border:1.5px solid var(--border);border-radius:var(--r-lg);cursor:pointer;transition:all .18s;text-align:center;min-height:88px}
+.cat-tile:active{transform:scale(.96);border-color:var(--gold);background:var(--cream-dark)}
+.cat-tile-emoji{font-size:28px;line-height:1}
+.cat-tile-label{font-size:12px;font-weight:600;color:var(--text-mid);line-height:1.2}
+
+.auth-overlay{position:fixed;inset:0;background:var(--forest);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:24px 20px;overflow-y:auto}
+.role-btn{flex:1;padding:10px 8px;border-radius:var(--r-md);border:2px solid var(--border);background:var(--cream);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--text-mid);cursor:pointer;transition:all .2s}
+.role-btn.active{border-color:var(--forest);background:var(--forest);color:#fff}
+.pw-eye{position:absolute;right:12px;bottom:12px;cursor:pointer;font-size:18px;opacity:.6;user-select:none;transition:opacity .2s}
+.pw-eye:hover{opacity:1}
+.pw-eye.visible{opacity:1}
+.auth-overlay.hidden{display:none}
+.auth-logo{font-family:'Playfair Display',serif;font-size:38px;font-weight:700;color:#fff;margin-bottom:4px;margin-top:20px;text-align:center}
+.auth-logo span{color:var(--gold-light)}
+.auth-sub{font-size:13px;color:rgba(255,255,255,.7);margin-bottom:16px;text-align:center}
+.auth-card{background:var(--warm-white);border-radius:var(--r-xl);padding:28px 24px;width:100%;max-width:380px;max-height:82vh;overflow-y:auto}
+.auth-tab{display:flex;border-bottom:2px solid var(--border);margin-bottom:20px}
+.auth-tab-btn{flex:1;padding:10px;font-size:14px;font-weight:600;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s;background:none;border-top:none;border-left:none;border-right:none;font-family:'DM Sans',sans-serif}
+.auth-tab-btn.active{color:var(--forest);border-bottom-color:var(--gold)}
+.auth-msg{font-size:13px;text-align:center;margin-top:12px;min-height:20px;color:var(--success)}
+.auth-msg.error{color:var(--danger)}
+.auth-spinner{display:none;text-align:center;padding:12px;font-size:13px;color:var(--text-muted)}
+
+.bottom-nav{position:absolute;bottom:0;left:0;right:0;background:var(--warm-white);border-top:1px solid var(--border);display:flex;padding:8px 0 14px;z-index:100}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:4px;transition:all .2s}
+.nav-icon{font-size:20px;transition:transform .2s;display:block}
+.nav-label{font-size:10px;font-weight:500;color:var(--text-muted)}
+.nav-item.active .nav-label{color:var(--gold)}
+.nav-item.active .nav-icon{transform:scale(1.12)}
+.nav-badge-wrap{position:relative;display:inline-block}
+.badge-dot{position:absolute;top:-2px;right:-4px;width:8px;height:8px;background:var(--danger);border-radius:50%;border:2px solid var(--warm-white)}
+
+.topbar{padding:16px 20px 12px;display:flex;align-items:center;justify-content:space-between;background:var(--warm-white);position:sticky;top:0;z-index:50;border-bottom:1px solid var(--border)}
+.topbar-logo{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--forest)}
+.topbar-logo span{color:var(--gold)}
+.icon-btn{width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:var(--cream);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;transition:all .2s}
+
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:12px}
+.card-shadow{box-shadow:var(--shadow)}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-gold{background:#FDF3E0;color:var(--gold-dark)}
+.badge-green{background:#E8F5EE;color:var(--success)}
+.badge-red{background:#FEE;color:var(--danger)}
+.badge-blue{background:#E8F0FA;color:var(--info)}
+.badge-forest{background:var(--forest);color:var(--gold-light)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 24px;border-radius:var(--r-md);font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;border:none;text-align:center;line-height:1}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--forest);color:var(--gold-light)}
+.btn-primary:hover:not(:disabled){background:var(--forest-mid)}
+.btn-gold{background:var(--gold);color:#fff}
+.btn-outline{background:transparent;border:1.5px solid var(--forest);color:var(--forest)}
+.btn-outline:hover{background:var(--cream)}
+.btn-sm{padding:8px 16px;font-size:13px;border-radius:var(--r-sm)}
+.btn-block{width:100%}
+.btn-danger-outline{background:transparent;border:1.5px solid var(--danger);color:var(--danger);border-radius:var(--r-sm);padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+
+.input-group{margin-bottom:16px}
+.input-label{font-size:13px;font-weight:500;color:var(--text-mid);margin-bottom:6px;display:block}
+.input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--r-md);font-family:'DM Sans',sans-serif;font-size:15px;background:var(--cream);color:var(--text-dark);transition:border-color .2s;outline:none}
+.input:focus{border-color:var(--gold);background:var(--warm-white)}
+textarea.input{resize:vertical;min-height:80px}
+select.input{cursor:pointer}
+
+.hero{background:linear-gradient(160deg,var(--forest) 0%,var(--forest-mid) 60%,#1C4A30 100%);padding:28px 20px 32px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-40px;right:-40px;width:200px;height:200px;border-radius:50%;background:rgba(201,148,58,.12)}
+.hero-label{font-size:12px;font-weight:600;color:var(--gold-light);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;position:relative}
+.hero-title{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:#fff;line-height:1.2;margin-bottom:8px;position:relative}
+.hero-sub{font-size:14px;color:rgba(255,255,255,.75);margin-bottom:20px;position:relative}
+.search-bar{background:var(--warm-white);border-radius:var(--r-lg);padding:12px 16px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.2);position:relative}
+.search-bar input{flex:1;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text-dark);outline:none}
+
+.section{padding:0 20px;margin-bottom:20px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-title{font-family:'Playfair Display',serif;font-size:18px;font-weight:600}
+.back-btn{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:var(--forest);cursor:pointer;padding:14px 20px 8px;border-bottom:1px solid var(--border)}
+.divider{height:1px;background:var(--border);margin:16px 0}
+.stars{color:var(--gold);font-size:14px}
+.avatar{border-radius:50%;background:var(--cream-dark);display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--forest);flex-shrink:0}
+
+.tabs{display:flex;border-bottom:2px solid var(--border);padding:0 20px;background:var(--warm-white);position:sticky;top:0;z-index:40;overflow-x:auto;scrollbar-width:none}
+.tab{padding:12px 14px;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;flex-shrink:0;transition:all .2s}
+.tab.active{color:var(--forest);border-bottom-color:var(--gold)}
+
+.status{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.status-pending{background:#FFF3CD;color:#856404}
+.status-active{background:#D4EDDA;color:#155724}
+.status-done{background:#D1ECF1;color:#0C5460}
+.status-dispute{background:#F8D7DA;color:#721C24}
+
+.upload-zone{border:2px dashed var(--border);border-radius:var(--r-md);padding:22px;text-align:center;cursor:pointer;transition:all .2s;background:var(--cream)}
+.upload-zone:hover{border-color:var(--gold);background:#FDF8F0}
+.upload-zone.uploading{border-color:var(--gold);background:#FDF8F0}
+.upload-zone.done{border-color:var(--success);background:#F0FFF5}
+
+.toggle-switch{width:52px;height:28px;border-radius:14px;background:#ccc;cursor:pointer;transition:all .3s;position:relative;flex-shrink:0}
+.toggle-switch.on{background:var(--success)}
+.toggle-knob{width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:all .3s;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+.toggle-switch.on .toggle-knob{left:27px}
+
+.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;border-radius:3px;background:var(--gold);transition:width .4s}
+
+.toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--text-dark);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:500;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+.toast.toast-error{background:var(--danger)}
+.toast.toast-success{background:var(--success)}
+
+/* ── Call Modal ─────────────────────────────────────────────── */
+#call-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99998;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#call-modal{background:linear-gradient(160deg,var(--forest),var(--forest-mid));border-radius:var(--r-xl);padding:32px 24px;width:280px;text-align:center;color:#fff;box-shadow:var(--shadow-lg)}
+.cm-avatar{width:80px;height:80px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;margin:0 auto}
+.cm-name{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;margin-bottom:6px}
+.cm-status{font-size:13px;color:rgba(255,255,255,.7);margin-bottom:24px}
+.cm-actions{display:flex;justify-content:center;gap:32px}
+.cm-btn{display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer}
+.cm-btn-circle{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;transition:transform .2s}
+.cm-btn-circle:active{transform:scale(.92)}
+.cm-btn-circle.end{background:#C0392B}
+.cm-btn-circle.accept{background:var(--success)}
+.cm-btn-label{font-size:11px;color:rgba(255,255,255,.8)}
+@keyframes pulse-ring{0%{transform:scale(1);opacity:.4}100%{transform:scale(1.4);opacity:0}}
+
+/* ── Message Popup ──────────────────────────────────────────── */
+#msg-popup{position:fixed;top:16px;left:16px;right:16px;background:var(--warm-white);border-radius:var(--r-lg);padding:12px 16px;display:none;align-items:center;gap:12px;z-index:99990;box-shadow:var(--shadow-lg);border:1px solid var(--border);cursor:pointer;animation:slideDown .3s ease}
+@keyframes slideDown{from{transform:translateY(-100%);opacity:0}to{transform:translateY(0);opacity:1}}
+.mp-avatar{width:38px;height:38px;border-radius:50%;background:var(--forest);color:var(--gold-light);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0}
+.mp-body{flex:1;min-width:0}
+.mp-name{font-weight:600;font-size:13px;margin-bottom:2px}
+.mp-text{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp-time{font-size:11px;color:var(--text-muted);flex-shrink:0}
+
+/* ── Status badges ──────────────────────────────────────────── */
+.status-badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.status-searching,.status-offered{background:#FFF3CD;color:#856404}
+.status-confirmed,.status-en_route,.status-arrived,.status-in_progress{background:#D4EDDA;color:#155724}
+.status-pending_completion{background:#D1ECF1;color:#0C5460}
+.status-completed{background:#E8F5EE;color:var(--success)}
+.status-cancelled,.status-expired{background:#F8D7DA;color:#721C24}
+.status-disputed{background:#FEE2E2;color:#991B1B}
+
+/* ── Pulse animation (waiting/offer screens) ────────────────── */
+.pulse-animation{font-size:48px;text-align:center;margin-bottom:16px;animation:pulse 1.5s ease-in-out infinite}
+
+/* ── Fixer card ─────────────────────────────────────────────── */
+.fixer-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.fixer-avatar{width:48px;height:48px;border-radius:50%;background:var(--forest-mid);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.fixer-info{flex:1;min-width:0}
+.fixer-name{font-weight:600;font-size:14px;margin-bottom:2px}
+.fixer-title{font-size:12px;color:var(--text-muted);margin-bottom:4px}
+.fixer-meta{display:flex;gap:10px;font-size:11px;color:var(--text-muted);flex-wrap:wrap}
+
+/* ── Category grid tiles ────────────────────────────────────── */
+.category-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px 8px;background:var(--card-bg);border:1.5px solid var(--border);border-radius:var(--r-lg);cursor:pointer;transition:all .18s;text-align:center;min-height:88px}
+.category-card:active{transform:scale(.96);border-color:var(--gold);background:var(--cream-dark)}
+.category-emoji{font-size:28px;line-height:1}
+.category-name{font-size:12px;font-weight:600;color:var(--text-mid);line-height:1.2}
+
+/* ── Booking card ───────────────────────────────────────────── */
+.booking-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:all .2s}
+.booking-card:active{background:var(--cream)}
+.booking-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px}
+.booking-title{font-weight:600;font-size:14px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.booking-details p{font-size:12px;color:var(--text-muted);margin-bottom:3px}
+.booking-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+
+/* ── Chat ───────────────────────────────────────────────────── */
+.message{display:flex;flex-direction:column;margin-bottom:12px}
+.message-mine{align-items:flex-end}
+.message-theirs{align-items:flex-start}
+.message-bubble{max-width:75%;padding:10px 14px;border-radius:var(--r-lg);font-size:14px;line-height:1.4}
+.message-mine .message-bubble{background:var(--forest);color:#fff;border-bottom-right-radius:4px}
+.message-theirs .message-bubble{background:var(--cream-dark);color:var(--text-dark);border-bottom-left-radius:4px}
+.message-time{font-size:10px;color:var(--text-muted);margin-top:3px;padding:0 4px}
+
+/* ── Empty state ────────────────────────────────────────────── */
+.empty-state{text-align:center;padding:40px 20px;color:var(--text-muted)}
+.empty-state p{font-size:14px}
+
+/* ── Availability toggle ────────────────────────────────────── */
+#availability-toggle{width:52px;height:28px;border-radius:14px;background:#ccc;cursor:pointer;transition:all .3s;position:relative}
+#availability-toggle.on{background:var(--success)}
+#availability-toggle::after{content:'';width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:all .3s;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+#availability-toggle.on::after{left:27px}
+
+/* ── Countdown timer ────────────────────────────────────────── */
+.countdown-timer{font-family:'Playfair Display',serif;font-size:36px;font-weight:700;color:var(--gold);text-align:center;margin:16px 0}
+</style>
+
+<script>
+  window.addEventListener('unhandledrejection', function(e) {
+    console.error('[Servit] Unhandled promise rejection:', e.reason);
+    if (typeof showToast === 'function') showToast('Something went wrong. Please try again.', 'error');
+  });
+  window.onerror = function(msg, src, line, col, err) {
+    console.error('[Servit] Uncaught error:', msg, 'at', src, line + ':' + col, err);
+    return false;
+  };
+
+  // ── Call modal helpers ────────────────────────────────────────
+  function dismissCallModal(e) {
+    if (e && e.target !== document.getElementById('call-modal-overlay')) return;
+    var overlay = document.getElementById('call-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+  window.dismissCallModal = dismissCallModal;
+
+  function showCallModal(name, phone) {
+    var overlay = document.getElementById('call-modal-overlay');
+    var nameEl  = document.getElementById('cm-name');
+    var avatar  = document.getElementById('cm-avatar');
+    var dialBtn = document.getElementById('cm-dial-btn');
+    if (!overlay) return;
+    if (nameEl)  nameEl.textContent  = name  || 'Calling…';
+    if (avatar)  avatar.textContent  = (name || '?')[0].toUpperCase();
+    if (dialBtn) dialBtn.onclick = function() {
+      if (phone) window.open('tel:' + phone);
+      overlay.style.display = 'none';
+    };
+    overlay.style.display = 'flex';
+  }
+  window.showCallModal = showCallModal;
+</script>
+</head>
+<body>
+
+<!-- SPLASH SCREEN -->
+<script>window._splashStart = Date.now();</script>
+<div id="splash-screen" style="position:fixed;inset:0;z-index:99999;background:var(--forest);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .5s ease">
+  <div style="animation:splashPop .5s cubic-bezier(.34,1.56,.64,1) both">
+    <img src="/icons/logo.png" alt="Servit" style="width:140px;height:140px;object-fit:contain;border-radius:28px;box-shadow:0 12px 40px rgba(0,0,0,.3)">
+  </div>
+  <div style="margin-top:24px;font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:#fff;letter-spacing:-0.5px;animation:fadeUp .5s .2s both">Servit</div>
+  <div style="margin-top:8px;font-family:'DM Sans',sans-serif;font-size:15px;color:rgba(255,255,255,0.65);animation:fadeUp .5s .35s both">Your fixer, on demand</div>
+  <div style="margin-top:48px;animation:fadeUp .5s .5s both">
+    <div style="width:36px;height:4px;background:rgba(255,255,255,.25);border-radius:2px;overflow:hidden">
+      <div id="splash-bar" style="height:100%;width:0%;background:var(--gold);border-radius:2px;transition:width 1.8s ease-out"></div>
+    </div>
+  </div>
+</div>
+<script>
+  requestAnimationFrame(function() {
+    var bar = document.getElementById("splash-bar");
+    if (bar) bar.style.width = "100%";
+  });
+  window._splashTimeout = setTimeout(function() {
+    var splash = document.getElementById("splash-screen");
+    if (splash && splash.style.display !== "none") {
+      splash.style.opacity = "0";
+      splash.style.pointerEvents = "none";
+      setTimeout(function() { splash.style.display = "none"; }, 500);
+    }
+  }, 5000);
+</script>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- INCOMING MESSAGE POPUP -->
+<div id="msg-popup" onclick="handleMsgPopupTap()">
+  <div class="mp-avatar" id="mp-avatar">?</div>
+  <div class="mp-body">
+    <div class="mp-name" id="mp-name">Someone</div>
+    <div class="mp-text" id="mp-text"></div>
+  </div>
+  <div class="mp-time" id="mp-time"></div>
+</div>
+
+<!-- IN-APP CALL MODAL -->
+<div id="call-modal-overlay" onclick="dismissCallModal(event)">
+  <div id="call-modal">
+    <div style="position:relative;width:80px;height:80px;margin:0 auto 16px">
+      <div style="position:absolute;inset:0;border-radius:50%;border:3px solid rgba(255,255,255,.3);animation:pulse-ring 1.4s ease-out infinite"></div>
+      <div class="cm-avatar" id="cm-avatar">?</div>
+    </div>
+    <div class="cm-name" id="cm-name">Calling…</div>
+    <div class="cm-status" id="cm-status">Connecting via phone</div>
+    <div class="cm-actions">
+      <div class="cm-btn" onclick="dismissCallModal()">
+        <div class="cm-btn-circle end">📵</div>
+        <div class="cm-btn-label">Cancel</div>
+      </div>
+      <div class="cm-btn" id="cm-dial-btn">
+        <div class="cm-btn-circle accept">📞</div>
+        <div class="cm-btn-label">Call Now</div>
+      </div>
+    </div>
+    <p style="font-size:11px;opacity:.5;margin-top:24px">Opens your phone's dialler</p>
+  </div>
+</div>
+
+<!-- AUTH OVERLAY -->
+<div class="auth-overlay" id="auth-overlay">
+  <div class="auth-logo">Ser<span>vit</span></div>
+  <p class="auth-sub">South Africa's trusted service marketplace</p>
+  <div class="auth-card">
+    <div class="auth-tab">
+      <button class="auth-tab-btn active" onclick="switchAuthTab('login',this)">Sign In</button>
+      <button class="auth-tab-btn" onclick="switchAuthTab('signup',this)">Create Account</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="auth-login">
+      <div class="input-group">
+        <label class="input-label">Email Address</label>
+        <input class="input" type="email" id="login-email" placeholder="you@email.com" onkeypress="if(event.key==='Enter')signIn()">
+      </div>
+      <div class="input-group" style="position:relative">
+        <label class="input-label">Password</label>
+        <input class="input" type="password" id="login-password" placeholder="Your password" autocomplete="current-password" maxlength="128" onkeypress="if(event.key==='Enter')signIn()" style="padding-right:44px">
+        <span class="pw-eye" onclick="togglePw('login-password',this)" title="Show password">👁</span>
+      </div>
+      <button class="btn btn-primary btn-block" id="login-btn">Sign In</button>
+      <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:12px;cursor:pointer" onclick="sendMagicLink()">Forgot password? Send magic link →</p>
+    </div>
+
+    <!-- SIGNUP -->
+    <div id="auth-signup" style="display:none">
+      <div class="input-group" style="margin-bottom:14px">
+        <label class="input-label" style="margin-bottom:8px">I am registering as a *</label>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="role-btn active" id="role-customer" onclick="selectRole('customer',this)">🏠 Customer</button>
+          <button type="button" class="role-btn" id="role-fixer" onclick="selectRole('fixer',this)">🔧 Fixer / Pro</button>
+        </div>
+        <input type="hidden" id="signup-role" value="customer">
+      </div>
+
+      <div id="customer-signup-fields">
+        <div class="input-group">
+          <label class="input-label">Full Name</label>
+          <input class="input" type="text" id="signup-name" placeholder="Your full name">
+        </div>
+        <div class="input-group">
+          <label class="input-label">Email Address</label>
+          <input class="input" type="email" id="signup-email" placeholder="you@email.com">
+        </div>
+        <div class="input-group">
+          <label class="input-label">Phone / WhatsApp</label>
+          <input class="input" type="tel" id="signup-customer-phone" placeholder="+27 XX XXX XXXX">
+        </div>
+        <div class="input-group" style="position:relative">
+          <label class="input-label">Password</label>
+          <input class="input" type="password" id="signup-password" placeholder="At least 8 characters" autocomplete="new-password" onkeypress="if(event.key==='Enter')document.getElementById('signup-btn').click()" style="padding-right:44px">
+          <span class="pw-eye" onclick="togglePw('signup-password',this)" title="Show password">👁</span>
+        </div>
+        <button class="btn btn-primary btn-block" id="signup-btn">Create Account</button>
+      </div>
+
+      <div id="fixer-signup-fields" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <button type="button" id="ftype-contractor" onclick="selectFixerType('contractor',this)" style="flex:1;padding:12px 8px;border-radius:var(--r-md);border:2px solid var(--forest);background:var(--forest);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:#fff;cursor:pointer;transition:all .2s;line-height:1.5;text-align:center">🔨 Individual<br><span style="font-weight:400;font-size:11px;opacity:.85">Contractor / Self-employed</span></button>
+          <button type="button" id="ftype-business" onclick="selectFixerType('business',this)" style="flex:1;padding:12px 8px;border-radius:var(--r-md);border:2px solid var(--border);background:var(--cream);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:var(--text-mid);cursor:pointer;transition:all .2s;line-height:1.5;text-align:center">🏢 Registered<br><span style="font-weight:400;font-size:11px">Business / Company</span></button>
+        </div>
+        <input type="hidden" id="signup-fixer-type" value="contractor">
+        <div id="signup-biz-fields" style="display:none;background:var(--cream);border:1.5px solid var(--border);border-radius:var(--r-md);padding:12px;margin-bottom:12px">
+          <div class="input-group" style="margin-bottom:8px"><label class="input-label" style="font-size:12px">Company / Business Name *</label><input class="input" id="signup-biz-name" placeholder="e.g. Molefe Plumbing (Pty) Ltd"></div>
+          <div class="input-group" style="margin-bottom:8px"><label class="input-label" style="font-size:12px">Company Reg. Number (CIPC) *</label><input class="input" id="signup-biz-reg" placeholder="e.g. 2022/123456/07"></div>
+          <div class="input-group" style="margin-bottom:0"><label class="input-label" style="font-size:12px">VAT Number <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label><input class="input" id="signup-vat" placeholder="e.g. 4123456789"></div>
+        </div>
+        <div class="input-group"><label class="input-label">Full Name / Trading Name *</label><input class="input" type="text" id="fx-signup-name" placeholder="e.g. Thabo Molefe"></div>
+        <div class="input-group"><label class="input-label">Email Address *</label><input class="input" type="email" id="fx-signup-email" placeholder="you@email.com"></div>
+        <div class="input-group" style="position:relative"><label class="input-label">Password *</label><input class="input" type="password" id="fx-signup-password" placeholder="At least 8 characters" style="padding-right:44px"><span class="pw-eye" onclick="togglePw('fx-signup-password',this)" title="Show password">👁</span></div>
+        <div class="input-group"><label class="input-label">Phone / WhatsApp *</label><input class="input" type="tel" id="signup-phone" placeholder="+27 XX XXX XXXX"></div>
+        <div class="input-group"><label class="input-label">City / Town *</label>
+          <select class="input" id="signup-city">
+            <option value="">Select your city...</option>
+            <option>Johannesburg</option><option>Cape Town</option><option>Durban</option>
+            <option>Pretoria</option><option>Bloemfontein</option><option>East London</option>
+            <option>Port Elizabeth</option><option>Polokwane</option><option>Nelspruit</option>
+            <option>Rustenburg</option><option>Kimberley</option><option>Pietermaritzburg</option>
+            <option>Richards Bay</option><option>Sandton</option><option>Midrand</option>
+            <option>George</option><option>Soweto</option><option>Other</option>
+          </select>
+        </div>
+        <div id="signup-id-field" class="input-group"><label class="input-label">SA ID Number *</label><input class="input" id="signup-sa-id" placeholder="13-digit SA ID number" maxlength="13" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')"></div>
+        <div class="input-group"><label class="input-label">Primary Service Category *</label>
+          <select class="input" id="signup-category">
+            <option value="">Select a category...</option>
+            <option>Cleaning</option><option>Plumbing</option><option>Electrical</option>
+            <option>Beauty &amp; Wellness</option><option>Hair &amp; Barbering</option>
+            <option>Tattoos &amp; Piercing</option><option>Tutoring &amp; Education</option>
+            <option>Garden &amp; Landscaping</option><option>Security</option>
+            <option>Moving &amp; Deliveries</option><option>IT Support</option>
+            <option>Painting &amp; Decorating</option><option>Carpentry</option>
+            <option>Appliance Repair</option><option>Pest Control</option>
+            <option>Photography</option><option>Catering</option>
+            <option>Personal Training</option><option>Child Minding</option>
+            <option>Handyman</option><option>Tiling &amp; Flooring</option>
+            <option>Roofing &amp; Waterproofing</option><option>Automotive</option>
+            <option>Event Services</option><option>Other</option>
+          </select>
+        </div>
+        <div class="input-group"><label class="input-label">Service Tagline *</label><input class="input" id="signup-tagline" placeholder="e.g. Licensed electrician · 8 years · Durban"></div>
+        <div class="input-group"><label class="input-label">Years of Experience *</label>
+          <select class="input" id="signup-experience">
+            <option value="">Select...</option>
+            <option>Less than 1 year</option><option>1–2 years</option><option>3–5 years</option><option>5–10 years</option><option>10+ years</option>
+          </select>
+        </div>
+        <div class="input-group"><label class="input-label">Base Rate (R) *</label>
+          <div style="display:flex;gap:8px">
+            <input class="input" type="number" id="signup-price" placeholder="e.g. 350" min="0" style="flex:2">
+            <select class="input" id="signup-price-type" style="flex:1"><option>hour</option><option>job</option><option>day</option><option>session</option></select>
+          </div>
+        </div>
+        <div class="input-group"><label class="input-label">How do you work? *</label>
+          <select class="input" id="signup-service-mode">
+            <option value="mobile">🚗 I travel to the client</option>
+            <option value="location">📍 Client comes to me</option>
+            <option value="both">🔄 Both</option>
+            <option value="digital">💻 Online / remote only</option>
+          </select>
+        </div>
+        <div class="input-group"><label class="input-label">Bio / About You *</label><textarea class="input" id="signup-bio" placeholder="Tell clients about your experience, skills, and what makes you stand out..." style="min-height:90px"></textarea></div>
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;margin-bottom:12px">
+          <p style="font-size:12px;font-weight:700;color:var(--forest);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Verification Documents</p>
+          <div id="signup-contractor-docs">
+            <div style="background:#FFF8E7;border:1.5px solid var(--gold);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px">
+              <p style="font-size:12px;font-weight:600;color:var(--gold-dark);margin-bottom:2px">⚡ Start working immediately</p>
+              <p style="font-size:11px;color:var(--text-mid);line-height:1.5">Your SA ID is all you need to register. Police clearance can take weeks to process — upload it later from your dashboard to earn your verified badge without delaying your first job.</p>
+            </div>
+            <div class="input-group" style="margin-bottom:10px">
+              <label class="input-label" style="font-size:12px">SA ID / Passport Copy <span style="color:var(--danger)">*</span></label>
+              <div class="upload-zone" id="signup-zone-id" onclick="document.getElementById('signup-file-id').click()">
+                <div style="font-size:22px;margin-bottom:4px">🪪</div>
+                <div style="font-size:13px;font-weight:500;color:var(--text-mid)">Tap to upload ID document</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">PDF, JPG or PNG · Max 10MB</div>
+              </div>
+              <input type="file" id="signup-file-id" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleSignupFileUpload(this,'signup-zone-id','id_document')">
+            </div>
+            <div class="input-group">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <label class="input-label" style="margin:0;font-size:12px">Police Clearance Certificate</label>
+                <span style="font-size:10px;background:var(--cream-dark);color:var(--text-mid);padding:2px 8px;border-radius:20px;font-weight:600">Optional — add later</span>
+              </div>
+              <div class="upload-zone" id="signup-zone-police" onclick="document.getElementById('signup-file-police').click()">
+                <div style="font-size:22px;margin-bottom:4px">🛡️</div>
+                <div style="font-size:13px;font-weight:500;color:var(--text-mid)">Tap to upload police clearance</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Must be less than 12 months old</div>
+              </div>
+              <input type="file" id="signup-file-police" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleSignupFileUpload(this,'signup-zone-police','police_clearance')">
+              <p style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5">🔒 You can still work and earn without it — upload later from your dashboard to unlock your verified badge.</p>
+            </div>
+          </div>
+          <div id="signup-business-docs" style="display:none">
+            <div style="background:#F0F7F0;border:1.5px solid var(--forest);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px">
+              <p style="font-size:12px;font-weight:600;color:var(--forest);margin-bottom:2px">🏢 Registered Business</p>
+              <p style="font-size:11px;color:var(--text-mid);line-height:1.5">No police clearance required. Your CIPC company registration serves as verification. Upload it below to earn your verified business badge.</p>
+            </div>
+            <div class="input-group">
+              <label class="input-label" style="font-size:12px">CIPC Company Registration Certificate <span style="color:var(--danger)">*</span></label>
+              <div class="upload-zone" id="signup-zone-cipc" onclick="document.getElementById('signup-file-cipc').click()">
+                <div style="font-size:22px;margin-bottom:4px">📋</div>
+                <div style="font-size:13px;font-weight:500;color:var(--text-mid)">Tap to upload CIPC certificate</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">PDF, JPG or PNG · Max 10MB</div>
+              </div>
+              <input type="file" id="signup-file-cipc" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="handleSignupFileUpload(this,'signup-zone-cipc','cipc_certificate')">
+            </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:12px">
+          <!-- FIX (Audit C6): Bank details moved to post-approval.
+               Asking for full banking info during signup before trust is established
+               kills fixer conversion — users think it's a scam. -->
+          <div style="background:var(--cream);border:1.5px solid var(--gold);border-radius:var(--r-md);padding:12px 14px">
+            <p style="font-size:12px;font-weight:700;color:var(--gold-dark);margin-bottom:4px">💳 Bank details added after approval</p>
+            <p style="font-size:11px;color:var(--text-mid);line-height:1.6">Once we've verified your application, you'll add your bank details securely from your dashboard. This keeps your information safe and only shared when you're ready to earn.</p>
+          </div>
+          <!-- Hidden inputs so existing _appSignUp JS doesn't break on missing IDs -->
+          <input type="hidden" id="signup-bank" value="">
+          <input type="hidden" id="signup-account-name" value="">
+          <input type="hidden" id="signup-account-num" value="">
+          <input type="hidden" id="signup-branch" value="">
+          <input type="hidden" id="signup-account-type" value="">
+        </div>
+        <div style="background:var(--forest);border-radius:var(--r-md);padding:14px;margin-bottom:14px;color:rgba(255,255,255,.85);font-size:12px;line-height:1.6">
+          <p style="font-family:'Playfair Display',serif;font-size:13px;font-weight:600;color:var(--gold-light);margin-bottom:8px">How Servit works for fixers</p>
+          <p>✓ Free to join — zero monthly fees</p>
+          <p>✓ 12% commission (min R15) only on completed bookings</p>
+          <p>✓ Set your own rates — paid daily to your bank account</p>
+          <p>✓ Contractors: start immediately, add police clearance later</p>
+          <p>✓ Businesses: CIPC replaces police clearance requirement</p>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:14px;font-size:12px;color:var(--text-mid)">
+          <input type="checkbox" id="signup-fixer-terms" style="margin-top:3px;accent-color:var(--forest);flex-shrink:0">
+          <span>I confirm all information is accurate and agree to Servit's <a href="https://servit.co.za/terms" target="_blank" style="color:var(--forest);font-weight:600;text-decoration:underline">Terms of Service</a> and <a href="https://servit.co.za/code-of-conduct" target="_blank" style="color:var(--forest);font-weight:600;text-decoration:underline">Code of Conduct</a>.</span>
+        </label>
+        <button class="btn btn-primary btn-block" id="signup-fixer-btn" style="padding:14px;font-size:15px">Submit Fixer Application →</button>
+        <p style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px">We'll review your application and WhatsApp you within 48 hours.</p>
+      </div>
+    </div>
+    <div class="auth-spinner" id="auth-spinner">Signing you in...</div>
+    <p class="auth-msg" id="auth-msg"></p>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="app" id="main-app" style="display:none">
+  <nav class="bottom-nav">
+    <div class="nav-item active" id="nav-home" onclick="navigate('home')">
+      <span class="nav-icon">🏠</span><span class="nav-label">Home</span>
+    </div>
+    <div class="nav-item" id="nav-bookings" onclick="navigate('bookings')">
+      <span class="nav-icon">📋</span><span class="nav-label">Bookings</span>
+    </div>
+    <div class="nav-item" id="nav-chat-list" onclick="navigate('chat-list')">
+      <div class="nav-badge-wrap"><span class="nav-icon">💬</span><span class="badge-dot" id="chat-dot" style="display:none"></span></div>
+      <span class="nav-label">Messages</span>
+    </div>
+    <div class="nav-item" id="nav-notifications" onclick="navigate('notifications')">
+      <div class="nav-badge-wrap"><span class="nav-icon">🔔</span><span class="badge-dot" id="notif-dot" style="display:none"></span></div>
+      <span class="nav-label">Alerts</span>
+    </div>
+    <div class="nav-item" id="nav-profile" onclick="navigate('profile')">
+      <span class="nav-icon">👤</span><span class="nav-label">Profile</span>
+    </div>
+  </nav>
+
+  <button id="post-job-fab" onclick="navigate('post-job')" style="display:none;position:fixed;bottom:90px;right:16px;width:48px;height:48px;border-radius:50%;background:var(--gold);border:none;cursor:pointer;font-size:22px;box-shadow:0 4px 16px rgba(0,0,0,.25);z-index:99;align-items:center;justify-content:center;transition:transform .2s" title="Post a Job">➕</button>
+
+  <div class="screen active" id="screen-home">
+    <div style="background:linear-gradient(160deg,var(--forest) 0%,var(--forest-mid) 65%,#1C4A30 100%);padding:18px 18px 22px;position:relative;overflow:hidden">
+      <div style="position:absolute;top:-30px;right:-30px;width:150px;height:150px;border-radius:50%;background:rgba(201,148,58,.1);pointer-events:none"></div>
+      <!-- Top row: location + notif bell + avatar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <p style="font-size:10px;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.7px;text-transform:uppercase;margin-bottom:3px">Your location</p>
+          <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="detectHomeLocation()">
+            <span style="width:8px;height:8px;background:var(--gold-light);border-radius:50%;display:inline-block;box-shadow:0 0 0 3px rgba(232,196,122,.25)"></span>
+            <p id="home-location-label" style="font-size:14px;font-weight:600;color:#fff">Detecting...</p>
+            <span style="font-size:11px;color:rgba(255,255,255,.45)">▾</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div style="position:relative;cursor:pointer" onclick="navigate('notifications')">
+            <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:16px">🔔</div>
+            <span id="home-notif-dot" style="display:none;position:absolute;top:1px;right:1px;width:9px;height:9px;background:var(--danger);border-radius:50%;border:2px solid #2D5A3D"></span>
+          </div>
+          <div id="home-user-avatar" style="width:36px;height:36px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;cursor:pointer;border:2px solid rgba(255,255,255,.3)" onclick="navigate('profile')">?</div>
+        </div>
+      </div>
+      <!-- Greeting -->
+      <p id="home-greeting" style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:#fff;margin-bottom:3px;line-height:1.25">What do you need done?</p>
+      <p style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:14px">Tap a category — we'll find the best fixer near you</p>
+      <!-- Search bar -->
+      <div style="background:rgba(255,255,255,.95);border-radius:var(--r-lg);padding:10px 14px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:15px;color:var(--text-muted)">🔍</span>
+        <input id="home-search-input" placeholder="Search services, fixers…" oninput="filterServices(this.value)" style="flex:1;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text-dark);outline:none">
+        <select id="city-filter" onchange="filterCity(this.value)" style="background:var(--forest);border:none;color:var(--gold-light);font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;padding:5px 10px;border-radius:20px;outline:none;cursor:pointer">
+          <option value="" style="color:#000;background:#fff">All areas</option>
+          <optgroup label="Gauteng" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Johannesburg</option><option style="color:#000;background:#fff">Pretoria</option><option style="color:#000;background:#fff">Soweto</option><option style="color:#000;background:#fff">Sandton</option><option style="color:#000;background:#fff">Midrand</option><option style="color:#000;background:#fff">Centurion</option><option style="color:#000;background:#fff">Boksburg</option></optgroup>
+          <optgroup label="Western Cape" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Cape Town</option><option style="color:#000;background:#fff">Stellenbosch</option><option style="color:#000;background:#fff">George</option><option style="color:#000;background:#fff">Paarl</option></optgroup>
+          <optgroup label="KwaZulu-Natal" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Durban</option><option style="color:#000;background:#fff">Pietermaritzburg</option><option style="color:#000;background:#fff">Richards Bay</option><option style="color:#000;background:#fff">Newcastle</option></optgroup>
+          <optgroup label="Eastern Cape" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Port Elizabeth</option><option style="color:#000;background:#fff">East London</option><option style="color:#000;background:#fff">Mthatha</option></optgroup>
+          <optgroup label="Free State" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Bloemfontein</option><option style="color:#000;background:#fff">Welkom</option></optgroup>
+          <optgroup label="Northern Cape" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Kimberley</option><option style="color:#000;background:#fff">Upington</option></optgroup>
+          <optgroup label="North West" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Rustenburg</option><option style="color:#000;background:#fff">Mahikeng</option></optgroup>
+          <optgroup label="Mpumalanga" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Nelspruit</option><option style="color:#000;background:#fff">Witbank</option></optgroup>
+          <optgroup label="Limpopo" style="color:#000;background:#fff"><option style="color:#000;background:#fff">Polokwane</option><option style="color:#000;background:#fff">Tzaneen</option></optgroup>
+        </select>
+      </div>
+    </div>
+    <!-- Categories -->
+    <div style="padding:14px 16px 0">
+      <div id="location-prompt" style="display:none;background:var(--cream);border:1.5px solid var(--gold);border-radius:var(--r-md);padding:12px 14px;margin-bottom:12px;align-items:center;gap:10px">
+        <span style="font-size:20px;flex-shrink:0">📍</span>
+        <div style="flex:1">
+          <p style="font-size:13px;font-weight:600;color:var(--text-dark)">Enable location for better matches</p>
+          <p style="font-size:11px;color:var(--text-muted)">We find the nearest available fixers using your location.</p>
+        </div>
+        <button onclick="detectHomeLocation();document.getElementById('location-prompt').style.display='none'" style="background:var(--gold);color:#fff;border:none;border-radius:var(--r-sm);padding:7px 12px;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">Allow</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <p style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Categories</p>
+        <p style="font-size:11px;font-weight:600;color:var(--gold-dark);cursor:pointer" onclick="showAllCategories()">See all →</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="category-grid"></div>
+    </div>
+
+    <!-- Emergency banner — FIX L-02: dismissible so it doesn't lose urgency from overexposure -->
+    <div id="emergency-banner" style="margin:12px 16px 0">
+      <div onclick="selectCategory('emergency','🚨','Emergency / Urgent')" style="background:linear-gradient(135deg,#C0392B,#E74C3C);border-radius:var(--r-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 4px 16px rgba(192,57,43,.25);position:relative">
+        <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🚨</div>
+        <div style="flex:1">
+          <p style="font-weight:700;color:#fff;font-size:13px;margin-bottom:2px">Emergency? Get help now</p>
+          <p style="font-size:11px;color:rgba(255,255,255,.82)">Fixer dispatched ASAP · Est. 30–45 min</p>
+        </div>
+        <span style="color:rgba(255,255,255,.7);font-size:20px">›</span>
+        <button onclick="event.stopPropagation();document.getElementById('emergency-banner').style.display='none';sessionStorage.setItem('servit_emrg_dismissed','1')" style="position:absolute;top:6px;right:8px;background:none;border:none;color:rgba(255,255,255,.5);font-size:16px;line-height:1;cursor:pointer;padding:2px 4px" title="Dismiss">×</button>
+      </div>
+    </div>
+
+    <!-- Referral card -->
+    <div id="home-referral-card" style="display:none;padding:0 16px"></div>
+
+    <!-- Recent bookings (returning users) -->
+    <div id="home-recent-section" style="display:none;padding:14px 16px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <p style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Recent Jobs</p>
+        <p style="font-size:11px;font-weight:600;color:var(--gold-dark);cursor:pointer" onclick="navigate('bookings')">All bookings →</p>
+      </div>
+      <div id="home-recent-list"></div>
+    </div>
+
+    <!-- Available Fixers nearby -->
+    <div style="padding:14px 16px 20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <p style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Available Fixers</p>
+        <div style="display:flex;align-items:center;gap:5px">
+          <span style="width:7px;height:7px;background:#4ADE80;border-radius:50%;display:inline-block;box-shadow:0 0 0 3px rgba(74,222,128,.2)"></span>
+          <p style="font-size:11px;color:var(--success);font-weight:600">Live</p>
+        </div>
+      </div>
+      <div id="fixer-list"></div>
+    </div>
+  </div>
+
+  <!-- REST OF SCREENS — injected here so DOM elements exist before app.js runs -->
+
+  <!-- FIXER DASHBOARD -->
+  <div class="screen" id="screen-fixer-dashboard">
+    <div style="background:linear-gradient(160deg,var(--forest) 0%,var(--forest-mid) 65%,#1C4A30 100%);padding:18px 18px 20px;position:relative;overflow:hidden">
+      <div style="position:absolute;top:-20px;right:-20px;width:120px;height:120px;border-radius:50%;background:rgba(201,148,58,.1);pointer-events:none"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div id="fixer-hero-avatar" style="width:48px;height:48px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;border:2px solid rgba(255,255,255,.3);flex-shrink:0;cursor:pointer" onclick="navigate('profile')">?</div>
+          <div>
+            <p style="font-size:10px;color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.7px;text-transform:uppercase;margin-bottom:2px">Fixer Dashboard</p>
+            <p id="fixer-name-label" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:#fff">Welcome back</p>
+            <div style="display:inline-flex;align-items:center;gap:4px;background:rgba(74,222,128,.2);border:1px solid #4ADE80;color:#4ADE80;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;margin-top:3px;letter-spacing:.3px">🔧 FIXER ACCOUNT</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+            <span id="fixer-avail-label" style="font-size:9px;font-weight:600;color:rgba(255,255,255,.6)">OFFLINE</span>
+            <div id="availability-toggle" title="Tap to go Online and receive job offers" onclick="toggleAvailability()"></div>
+            <span style="font-size:8px;color:rgba(255,255,255,.4);text-align:center;line-height:1.2;max-width:52px">tap to get<br>offers</span>
+          </div>
+          <div style="position:relative;cursor:pointer" onclick="navigate('notifications')">
+            <div style="width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:15px">🔔</div>
+            <span id="fixer-notif-dot" style="display:none;position:absolute;top:1px;right:1px;width:8px;height:8px;background:var(--danger);border-radius:50%;border:2px solid #2D5A3D"></span>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="background:rgba(255,255,255,.11);border-radius:var(--r-md);padding:10px 8px;text-align:center">
+          <p id="fixer-earnings" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:var(--gold-light)">—</p>
+          <p style="font-size:9px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:.3px">Earned</p>
+        </div>
+        <div style="background:rgba(255,255,255,.11);border-radius:var(--r-md);padding:10px 8px;text-align:center">
+          <p id="fixer-jobs-count" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:var(--gold-light)">—</p>
+          <p style="font-size:9px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:.3px">Jobs Done</p>
+        </div>
+        <div style="background:rgba(255,255,255,.11);border-radius:var(--r-md);padding:10px 8px;text-align:center">
+          <p id="fixer-rating-label" style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:var(--gold-light)">—</p>
+          <p style="font-size:9px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:.3px">Rating</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="heartbeat-banner" style="display:none;background:#fff3cd;color:#856404;border-bottom:1px solid #ffc107;padding:10px 16px;font-size:13px;align-items:center;gap:8px"></div>
+
+    <!-- New offer pulse banner -->
+    <div id="fixer-new-offer-banner" style="display:none;background:linear-gradient(135deg,var(--gold),#E8A820);padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;animation:servit-pulse .8s infinite" onclick="document.getElementById('fixer-new-offer-banner').style.display='none'">
+      <span style="font-size:20px">🔔</span>
+      <p style="font-weight:700;color:#fff;font-size:14px;flex:1">New job offer arrived!</p>
+      <span style="color:rgba(255,255,255,.8);font-size:18px">›</span>
+    </div>
+
+    <div style="padding:14px 16px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <p style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Pending Offers</p>
+        <span id="offers-count-badge" style="display:none;background:var(--danger);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">0</span>
+      </div>
+      <div id="pending-offers"></div>
+    </div>
+
+    <div style="padding:12px 16px 20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <p style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Active Jobs</p>
+      </div>
+      <div id="fixer-active-jobs"></div>
+    </div>
+  </div>
+
+  <!-- ADMIN DASHBOARD SCREEN -->
+  <div class="screen" id="screen-admin">
+    <div id="admin-content"></div>
+  </div>
+
+  <!-- BOOKINGS SCREEN -->
+  <div class="screen" id="screen-bookings">
+    <div class="topbar">
+      <span class="topbar-logo">Ser<span>vit</span> <span style="font-size:14px;font-weight:500;color:var(--text-mid);font-family:'DM Sans',sans-serif">· Bookings</span></span>
+      <button class="btn btn-primary btn-sm" onclick="navigate('home')" style="padding:8px 14px;font-size:12px">+ New Booking</button>
+    </div>
+    <div style="display:flex;border-bottom:2px solid var(--border);background:var(--warm-white);overflow-x:auto;scrollbar-width:none" id="bookings-tabs">
+      <div class="tab active" data-tab="active" onclick="loadBookings('active')" style="flex:1;text-align:center">Active</div>
+      <div class="tab" data-tab="history" onclick="loadBookings('history')" style="flex:1;text-align:center">History</div>
+    </div>
+    <!-- Active booking status bar — shown when there's a live job -->
+    <div id="active-job-banner" style="display:none;background:linear-gradient(135deg,var(--forest),var(--forest-mid));padding:10px 16px;display:flex;align-items:center;gap:10px;cursor:pointer" onclick="loadActiveJob(window._activeBannerJobId)">
+      <span style="width:8px;height:8px;background:#4ADE80;border-radius:50%;flex-shrink:0;animation:servit-pulse 1.5s infinite"></span>
+      <p id="active-job-banner-text" style="font-size:13px;font-weight:600;color:#fff;flex:1">Job in progress</p>
+      <p style="font-size:12px;color:var(--gold-light)">Track →</p>
+    </div>
+    <div style="padding:16px" id="bookings-list"></div>
+  </div>
+
+  <!-- MESSAGES LIST SCREEN -->
+  <div class="screen" id="screen-messages">
+    <div class="topbar">
+      <span class="topbar-logo">Ser<span>vit</span> <span style="font-size:14px;font-weight:500;color:var(--text-mid);font-family:'DM Sans',sans-serif">· Messages</span></span>
+      <div style="width:38px"></div>
+    </div>
+    <!-- Search bar -->
+    <div style="padding:10px 16px;background:var(--warm-white);border-bottom:1px solid var(--border)">
+      <div style="background:var(--cream);border:1.5px solid var(--border);border-radius:var(--r-md);padding:9px 14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px;color:var(--text-muted)">🔍</span>
+        <input id="messages-search" placeholder="Search conversations…" oninput="filterConversations(this.value)" style="flex:1;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-dark);outline:none">
+      </div>
+    </div>
+    <div id="conversations-list"></div>
+  </div>
+
+  <!-- CHAT SCREEN -->
+  <div class="screen screen-flex" id="screen-chat">
+    <div class="topbar">
+      <div onclick="showMessagesScreen()" style="cursor:pointer;font-size:14px;font-weight:500;color:var(--forest)">← Back</div>
+      <span id="chat-name" style="font-weight:600;font-size:15px">Chat</span>
+      <div style="width:38px"></div>
+    </div>
+    <div id="chat-messages" style="flex:1;overflow-y:auto;padding:16px"></div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);background:var(--warm-white);display:flex;gap:10px">
+      <input id="chat-input" class="input" placeholder="Type a message…" style="flex:1;margin:0">
+      <button id="send-btn" class="btn btn-primary btn-sm">Send</button>
+    </div>
+  </div>
+
+  <!-- PROFILE SCREEN -->
+  <div class="screen" id="screen-profile">
+    <div id="profile-content"></div>
+  </div>
+
+  <!-- REQUEST SCREEN -->
+  <div class="screen" id="screen-request">
+    <div class="back-btn" onclick="showHomeScreen()">← Back</div>
+    <div id="request-content"></div>
+  </div>
+
+  <!-- WAITING SCREEN -->
+  <div class="screen screen-flex" id="screen-waiting" style="align-items:center;justify-content:center;padding:40px 20px">
+    <div id="waiting-content" style="width:100%;text-align:center"></div>
+  </div>
+
+  <!-- OFFER SCREEN (fixer) -->
+  <div class="screen" id="screen-offer">
+    <div id="offer-content"></div>
+  </div>
+
+  <!-- JOB SCREEN -->
+  <div class="screen" id="screen-job">
+    <div class="back-btn" onclick="currentFixerProfile ? showFixerDashboard() : showBookingsScreen('active')">← Back</div>
+    <div id="job-content"></div>
+  </div>
+
+  <!-- NOTIFICATIONS SCREEN -->
+  <div class="screen" id="screen-notifications">
+    <div class="topbar">
+      <span class="topbar-logo">Ser<span>vit</span> <span style="font-size:14px;font-weight:500;color:var(--text-mid);font-family:'DM Sans',sans-serif">· Notifications</span></span>
+      <button onclick="markAllNotifsRead()" style="background:none;border:none;font-size:12px;font-weight:600;color:var(--gold-dark);cursor:pointer;font-family:'DM Sans',sans-serif">Mark all read</button>
+    </div>
+    <!-- Filter pills -->
+    <div style="display:flex;gap:6px;padding:10px 16px;overflow-x:auto;background:var(--warm-white);border-bottom:1px solid var(--border);scrollbar-width:none">
+      <button id="notif-filter-all" onclick="filterNotifsByType('all',this)" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:600;border:none;background:var(--forest);color:#fff;cursor:pointer">All</button>
+      <button id="notif-filter-unread" onclick="filterNotifsByType('unread',this)" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid var(--border);background:var(--cream);color:var(--text-muted);cursor:pointer">Unread</button>
+      <button id="notif-filter-booking" onclick="filterNotifsByType('booking',this)" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid var(--border);background:var(--cream);color:var(--text-muted);cursor:pointer">Bookings</button>
+      <button id="notif-filter-payment" onclick="filterNotifsByType('payment',this)" style="flex-shrink:0;padding:5px 14px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid var(--border);background:var(--cream);color:var(--text-muted);cursor:pointer">Payments</button>
+    </div>
+    <div id="notifications-list"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="marketplace.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/map.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.warn('SW registration failed:', err));
+  }
+</script>
+</body>
+</html>

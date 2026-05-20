@@ -1,0 +1,11 @@
+{
+  "name": "servit",
+  "version": "8.9.8",
+  "description": "Production Uber-Style Service Marketplace",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^17.4.2",
+    "resend": "^4.0.0",
+    "web-push": "^3.6.7"
+  }
+}

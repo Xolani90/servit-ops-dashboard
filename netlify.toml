@@ -1,0 +1,260 @@
+# ═══════════════════════════════════════════════════════════════
+# SERVIT v6.5 — Netlify Configuration
+# ═══════════════════════════════════════════════════════════════
+
+# ── REQUIRED environment variables ───────────────────────────────────────────
+# Set these in Netlify UI → Site settings → Environment variables.
+# They are NOT in this file to avoid committing secrets to git.
+#
+#   APP_URL              = https://servit.co.za
+#                          ↑ CRITICAL: If missing, Yoco redirects customers to
+#                            localhost after payment and they never return to the app.
+#                            Netlify auto-injects process.env.URL as a fallback (v8.6 fix),
+#                            but APP_URL should always be explicitly set.
+#
+#   SUPABASE_URL         = https://<ref>.supabase.co
+#   SUPABASE_SERVICE_KEY = eyJ...  (service_role key, NOT anon key)
+#   YOCO_SECRET_KEY      = sk_live_...
+#   YOCO_WEBHOOK_SECRET  = whsec_<base64>  (from Yoco dashboard → Webhooks)
+#   RESEND_API_KEY       = re_...           (optional — confirmation emails)
+#   VAPID_PUBLIC_KEY     = BEX...           (push notifications)
+#   VAPID_PRIVATE_KEY    = FrV...
+#   VAPID_SUBJECT        = mailto:...       (optional, defaults to mailto:support@servit.co.za)
+#   INTERNAL_SECRET      = <random hex>    (internal function-to-function auth)
+#   ADMIN_DASHBOARD_PASSWORD = <password>  (HTTP Basic auth for ops dashboard)
+#   ALLOWED_ORIGIN       = https://servit.co.za  (CORS for surge-signal.js)
+#   WHATSAPP_API_URL     = https://...     (optional — WhatsApp Business API endpoint)
+#   WHATSAPP_API_TOKEN   = eyJ...          (optional — WhatsApp Business API token)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[build]
+  publish = "frontend"
+  functions = "netlify/functions"
+  command = "node -e \"const fs=require('fs');let h=fs.readFileSync('frontend/index.html','utf8');h=h.replace('window.__YOCO_PUBLIC_KEY__ || \\\"\\\"','\\\"'+(process.env.YOCO_PUBLIC_KEY||'')+'\\\"');fs.writeFileSync('frontend/index.html',h);\" || true"
+
+[dev]
+  publish = "frontend"
+  functions = "netlify/functions"
+  port = 8888
+
+[dev.environment]
+  YOCO_PUBLIC_KEY = "pk_test_d7aeb899P4gbewz8ed44"
+  # Real credentials have been removed from this file.
+  # Copy .env.example -> .env and fill in your actual values.
+  # `netlify dev` automatically loads variables from .env.
+
+# ── Scheduled functions ───────────────────────────────────────────
+[functions."dormant-fixer-nudge"]
+  schedule = "0 7 * * *"
+
+[functions."process-nudges"]
+  schedule = "0 * * * *"
+
+[functions."health-alert"]
+  schedule = "0 4 * * *"
+
+[functions."release-payouts"]
+  schedule = "*/30 * * * *"
+
+[functions."search-timeout-refunds"]
+  schedule = "*/5 * * * *"
+
+[functions."reconcile-searching-bookings"]
+  schedule = "*/2 * * * *"
+
+[functions."reconcile-payments"]
+  schedule = "*/10 * * * *"
+
+[functions."process-failed-match-refunds"]
+  schedule = "0 * * * *"
+
+[functions."send-fixer-offer-emails"]
+  schedule = "* * * * *"
+
+[functions."serve-admin-dashboard"]
+  included_files = ["netlify/functions/admin/ops-dashboard.html"]
+
+[functions."ops-proxy"]
+  included_files = []
+
+[functions."surge-signal"]
+  included_files = []
+
+[functions."redeem-referral"]
+  included_files = []
+
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Content-Type = "image/png"
+
+[[headers]]
+  for = "/icons/*.svg"
+  [headers.values]
+    Content-Type = "image/svg+xml"
+
+# Redirects
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://payments.yoco.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://fonts.gstatic.com https://nominatim.openstreetmap.org; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Function CORS — BUG 2 FIX: Removed wildcard from /.netlify/functions/* catch-all.
+# The wildcard overrode admin-override.js's origin-restricted header in error/crash
+# scenarios. CORS is now scoped to individual public-facing endpoints only.
+# admin-override.js emits its own restricted Access-Control-Allow-Origin header.
+[[headers]]
+  for = "/.netlify/functions/create-booking"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/verify-payment"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/cancel-booking"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/accept-offer"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+# PERFORMANCE FIX: Keep accept-offer and decline-offer warm to reduce cold start latency
+# in the 45-second offer acceptance window. These functions are called by fixers
+# immediately after receiving push notifications, so cold starts would eat into the
+# critical acceptance window.
+[functions."accept-offer"]
+  timeout = 10
+
+[functions."decline-offer"]
+  timeout = 10
+
+[[headers]]
+  for = "/.netlify/functions/decline-offer"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/write-review"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/update-job-status"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/update-location"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/toggle-availability"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/save-push-subscription"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/get-payouts"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/raise-dispute"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/resolve-dispute"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/schedule-booking"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/price-guidance"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type"
+
+[[headers]]
+  for = "/.netlify/functions/surge-signal"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/get-disputes"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+[[headers]]
+  for = "/.netlify/functions/redeem-referral"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"

@@ -1,0 +1,2590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servit Ops Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:      #09090f;
+      --surface: #111118;
+      --card:    #16161f;
+      --border:  #22222e;
+      --border2: #2e2e3f;
+      --text:    #e4e4f0;
+      --muted:   #66668880;
+      --dim:     #5a5a78;
+      --green:   #22d072;
+      --yellow:  #f0b429;
+      --red:     #f04f4f;
+      --blue:    #4d9eff;
+      --accent:  #7c5cfc;
+      --accent2: #a78bfa;
+      --sidebar: 220px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(124,92,252,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124,92,252,.025) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── AUTH GATE ──────────────────────────────────────────── */
+    #auth-gate {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 24px; position: relative; z-index: 10;
+    }
+    .auth-card {
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 20px;
+      padding: 48px 40px;
+      width: 100%; max-width: 400px;
+      box-shadow: 0 40px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(124,92,252,.1);
+    }
+    .auth-logo { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 6px; }
+    .auth-logo span { color: var(--accent2); }
+    .auth-card p { color: var(--dim); font-size: 13px; margin-bottom: 32px; }
+    .field-label { font-size: 11px; font-weight: 600; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 7px; }
+    input[type="password"], input[type="text"], input[type="search"], input[type="email"], textarea, select.inp {
+      width: 100%; padding: 11px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 14px; font-family: 'DM Sans', sans-serif;
+      transition: border-color .15s;
+    }
+    input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,252,.15); }
+    .btn-primary { width: 100%; margin-top: 14px; padding: 12px; background: var(--accent); border: none; border-radius: 10px; color: #fff; font-size: 14px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: opacity .15s, transform .1s; }
+    .btn-primary:hover { opacity: .9; transform: translateY(-1px); }
+    .auth-error { color: var(--red); font-size: 12px; margin-top: 10px; display: none; }
+
+    /* ── APP SHELL ──────────────────────────────────────────── */
+    #app { display: none; position: relative; z-index: 1; }
+    .app-layout { display: flex; min-height: 100vh; }
+
+    /* ── SIDEBAR ────────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar); flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      position: fixed; top: 0; left: 0; bottom: 0;
+      display: flex; flex-direction: column;
+      z-index: 200; overflow-y: auto;
+    }
+    .sidebar-logo {
+      padding: 20px 20px 16px;
+      font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 800;
+      letter-spacing: -.3px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sidebar-logo span { color: var(--accent2); }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s ease-in-out infinite; flex-shrink: 0; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .sidebar-nav { padding: 12px 10px; flex: 1; }
+    .nav-label { font-size: 10px; font-weight: 700; color: var(--dim); letter-spacing: .1em; text-transform: uppercase; padding: 8px 10px 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 8px; cursor: pointer;
+      color: var(--dim); font-size: 13px; font-weight: 500;
+      transition: all .15s; border: none; background: none; width: 100%;
+      text-align: left; font-family: 'DM Sans', sans-serif;
+      position: relative;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.04); color: var(--text); }
+    .nav-item.active { background: rgba(124,92,252,.15); color: var(--accent2); }
+    .nav-item .nav-icon { width: 18px; text-align: center; font-size: 14px; flex-shrink: 0; }
+    .nav-badge {
+      margin-left: auto; font-size: 10px; font-weight: 700;
+      background: var(--red); color: #fff;
+      padding: 1px 6px; border-radius: 20px; min-width: 18px; text-align: center;
+    }
+    .nav-badge.yellow { background: var(--yellow); color: #000; }
+    .sidebar-footer {
+      padding: 14px 16px; border-top: 1px solid var(--border);
+      font-size: 12px; color: var(--dim);
+    }
+    .sidebar-footer strong { display: block; color: var(--text); font-weight: 600; }
+
+    /* ── MAIN CONTENT ───────────────────────────────────────── */
+    .main-wrap { margin-left: var(--sidebar); flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    /* ── TOPBAR ─────────────────────────────────────────────── */
+    .topbar {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(9,9,15,.9); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px; height: 54px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .topbar-title { font-size: 14px; font-weight: 700; color: var(--text); }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    select.period-select {
+      background: var(--surface); border: 1px solid var(--border2);
+      color: var(--text); border-radius: 8px;
+      padding: 6px 10px; font-size: 12px; font-family: 'DM Sans',sans-serif;
+      cursor: pointer;
+    }
+    .icon-btn {
+      background: var(--surface); border: 1px solid var(--border2);
+      color: var(--dim); width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .15s; font-size: 14px;
+    }
+    .icon-btn:hover { background: var(--border2); color: var(--text); }
+    #last-updated { font-size: 11px; color: var(--dim); font-family: 'IBM Plex Mono', monospace; }
+
+    /* ── SEARCH BAR ─────────────────────────────────────────── */
+    .search-bar-wrap {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 12px 24px; display: flex; align-items: center; gap: 10px;
+    }
+    .search-inner { position: relative; flex: 1; max-width: 560px; }
+    .search-inner svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--dim); pointer-events: none; }
+    .search-inner input { padding-left: 36px; height: 36px; background: var(--bg); }
+    .search-type-tabs { display: flex; gap: 5px; }
+    .search-tab { padding: 5px 11px; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid var(--border2); background: transparent; color: var(--dim); cursor: pointer; transition: all .15s; font-family: 'DM Sans', sans-serif; }
+    .search-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    #search-results { margin: 0 24px; display: none; }
+    .search-result-card { background: var(--card); border: 1px solid var(--border2); border-radius: 14px; padding: 20px 24px; margin: 16px 0; }
+    .search-result-card h3 { font-size: 12px; font-weight: 700; margin-bottom: 14px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+
+    /* ── PAGE CONTAINER ─────────────────────────────────────── */
+    .page { padding: 24px; max-width: 1280px; margin: 0 auto; display: none; }
+    .page.active { display: block; }
+
+    /* ── METRIC CARDS ───────────────────────────────────────── */
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .metric { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; transition: border-color .2s; }
+    .metric:hover { border-color: var(--border2); }
+    .metric.alert { border-color: rgba(240,79,79,.5); background: rgba(240,79,79,.04); }
+    .metric.ok    { border-color: rgba(34,208,114,.3); }
+    .metric .label { font-size: 11px; color: var(--dim); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+    .metric .value { font-size: 28px; font-weight: 700; line-height: 1; font-family: 'Syne', sans-serif; }
+    .metric .sub   { font-size: 11px; color: var(--dim); margin-top: 6px; }
+
+    /* ── ALERTS ─────────────────────────────────────────────── */
+    #alerts-banner { margin-bottom: 20px; display: none; }
+    .alert-item { background: rgba(240,79,79,.07); border: 1px solid rgba(240,79,79,.3); border-radius: 10px; padding: 11px 16px; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+    .alert-item.yellow-alert { background: rgba(240,180,41,.07); border-color: rgba(240,180,41,.3); }
+
+    /* ── SECTIONS ───────────────────────────────────────────── */
+    .section { margin-bottom: 28px; }
+    .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .section-header h2 { font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: .1em; }
+    .badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
+    .badge-red    { background: rgba(240,79,79,.2);   color: var(--red);    border: 1px solid rgba(240,79,79,.3); }
+    .badge-yellow { background: rgba(240,180,41,.15); color: var(--yellow); border: 1px solid rgba(240,180,41,.25); }
+    .badge-blue   { background: rgba(77,158,255,.15); color: var(--blue);   border: 1px solid rgba(77,158,255,.25); }
+    .badge-green  { background: rgba(34,208,114,.15); color: var(--green);  border: 1px solid rgba(34,208,114,.25); }
+    .section-header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+    /* ── TABLE ──────────────────────────────────────────────── */
+    .table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { padding: 11px 16px; text-align: left; color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+    th:hover { color: var(--text); }
+    td { padding: 10px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.015); }
+    .mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+    .pct-good { color: var(--green); font-weight: 700; }
+    .pct-warn { color: var(--yellow); font-weight: 700; }
+    .pct-bad  { color: var(--red);    font-weight: 700; }
+    .status-online  { color: var(--green); }
+    .status-offline { color: var(--dim); }
+    .status-busy    { color: var(--yellow); }
+
+    /* ── TAGS ───────────────────────────────────────────────── */
+    .result-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .tag-green  { background: rgba(34,208,114,.15); color: var(--green); }
+    .tag-red    { background: rgba(240,79,79,.15);  color: var(--red); }
+    .tag-yellow { background: rgba(240,180,41,.15); color: var(--yellow); }
+    .tag-blue   { background: rgba(77,158,255,.15); color: var(--blue); }
+    .tag-purple { background: rgba(124,92,252,.15); color: var(--accent2); }
+
+    /* ── FUNNEL ─────────────────────────────────────────────── */
+    .funnel-row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .funnel-label { width: 110px; font-size: 12px; color: var(--dim); font-weight: 500; }
+    .funnel-bar-wrap { flex: 1; background: var(--border); border-radius: 4px; height: 12px; overflow: hidden; }
+    .funnel-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 4px; transition: width .6s cubic-bezier(.4,0,.2,1); }
+    .funnel-count { width: 50px; text-align: right; font-size: 12px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+
+    /* ── CANCEL BARS ────────────────────────────────────────── */
+    .cancel-rows { display: flex; flex-direction: column; gap: 8px; }
+    .cancel-row  { display: flex; align-items: center; gap: 10px; }
+    .cancel-key  { width: 180px; font-size: 12px; color: var(--text); }
+    .cancel-bar-wrap { flex: 1; background: var(--border); height: 8px; border-radius: 4px; overflow: hidden; }
+    .cancel-bar  { height: 100%; background: var(--red); border-radius: 4px; opacity: .7; }
+    .cancel-pct  { width: 38px; text-align: right; font-size: 12px; color: var(--dim); font-family: 'IBM Plex Mono', monospace; }
+
+    /* ── ACTION BUTTONS ─────────────────────────────────────── */
+    .btn-approve, .btn-reject, .btn-suspend, .btn-action, .btn-sm {
+      border: none; border-radius: 7px; padding: 5px 11px;
+      font-size: 11px; font-weight: 700; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      font-family: 'DM Sans', sans-serif; letter-spacing: .02em;
+    }
+    .btn-approve { background: rgba(34,208,114,.18); color: var(--green); border: 1px solid rgba(34,208,114,.3); }
+    .btn-reject  { background: rgba(240,79,79,.18);  color: var(--red);   border: 1px solid rgba(240,79,79,.3); }
+    .btn-suspend { background: rgba(240,180,41,.18); color: var(--yellow);border: 1px solid rgba(240,180,41,.3); }
+    .btn-action  { background: rgba(77,158,255,.15); color: var(--blue);  border: 1px solid rgba(77,158,255,.3); }
+    .btn-sm      { background: rgba(124,92,252,.15); color: var(--accent2); border: 1px solid rgba(124,92,252,.25); }
+    .btn-approve:hover, .btn-reject:hover, .btn-suspend:hover, .btn-action:hover, .btn-sm:hover { opacity: .8; transform: translateY(-1px); }
+    .btn-approve:disabled, .btn-reject:disabled, .btn-suspend:disabled, .btn-action:disabled { opacity: .35; cursor: not-allowed; transform: none; }
+
+    /* ── LOADER ─────────────────────────────────────────────── */
+    .loader { color: var(--dim); font-size: 13px; padding: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; }
+
+    /* ── SECURITY NOTE ──────────────────────────────────────── */
+    .security-note { display: flex; align-items: flex-start; gap: 10px; background: rgba(240,180,41,.06); border: 1px solid rgba(240,180,41,.2); border-radius: 10px; padding: 12px 16px; font-size: 12px; color: var(--yellow); line-height: 1.5; margin-bottom: 12px; }
+    .security-note strong { display: block; margin-bottom: 2px; }
+
+    /* ── MODAL ──────────────────────────────────────────────── */
+    .modal-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.78); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 24px; opacity: 0; pointer-events: none; transition: opacity .2s; }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal { background: var(--card); border: 1px solid var(--border2); border-radius: 18px; padding: 28px 32px; width: 100%; max-width: 540px; transform: translateY(16px); transition: transform .2s; box-shadow: 0 40px 80px rgba(0,0,0,.6); position: relative; max-height: 90vh; overflow-y: auto; }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal h3 { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; margin-bottom: 20px; }
+    .modal-close { position: absolute; top: 18px; right: 18px; background: var(--border2); border: none; border-radius: 6px; color: var(--dim); width: 28px; height: 28px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+    .modal-close:hover { background: var(--border); color: var(--text); }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .detail-field label { font-size: 11px; color: var(--dim); display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .06em; }
+    .detail-field span { font-size: 13px; }
+    .detail-divider { grid-column: 1/-1; height: 1px; background: var(--border); }
+    .confirm-actions { display: flex; gap: 10px; margin-top: 22px; justify-content: flex-end; }
+    .btn-cancel-modal { padding: 9px 18px; border-radius: 9px; border: 1px solid var(--border2); background: transparent; color: var(--dim); font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .btn-confirm-modal { padding: 9px 18px; border-radius: 9px; background: var(--red); border: none; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: opacity .15s; }
+    .btn-confirm-modal:hover { opacity: .85; }
+    .btn-confirm-modal.yellow { background: var(--yellow); color: #000; }
+    .btn-confirm-modal.green { background: var(--green); color: #000; }
+
+    /* ── TOAST ──────────────────────────────────────────────── */
+    #toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; background: var(--card); border: 1px solid var(--border2); border-radius: 12px; padding: 12px 18px; font-size: 13px; font-weight: 500; box-shadow: 0 20px 40px rgba(0,0,0,.5); transform: translateY(80px); opacity: 0; transition: all .25s cubic-bezier(.4,0,.2,1); pointer-events: none; max-width: 320px; }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.toast-green { border-left: 3px solid var(--green); }
+    #toast.toast-red   { border-left: 3px solid var(--red); }
+    #toast.toast-yellow{ border-left: 3px solid var(--yellow); }
+
+    /* ── FIXER PROFILE PAGE ─────────────────────────────────── */
+    .fixer-profile-header {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px 28px; margin-bottom: 20px;
+      display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;
+    }
+    .fixer-avatar { width: 60px; height: 60px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: #fff; font-family: 'Syne', sans-serif; flex-shrink: 0; }
+    .fixer-profile-info { flex: 1; min-width: 200px; }
+    .fixer-profile-info h2 { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+    .fixer-profile-meta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .fixer-meta-item { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
+    .fixer-profile-stats { display: flex; gap: 12px; flex-wrap: wrap; }
+    .fixer-stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; text-align: center; }
+    .fixer-stat .sv { font-size: 20px; font-weight: 800; font-family: 'Syne', sans-serif; }
+    .fixer-stat .sl { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; margin-top: 2px; }
+    .fixer-profile-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; margin-left: auto; }
+
+    /* ── PROFILE TABS ───────────────────────────────────────── */
+    .profile-tabs { display: flex; gap: 2px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+    .profile-tab { padding: 10px 16px; font-size: 13px; font-weight: 600; color: var(--dim); cursor: pointer; border: none; background: none; font-family: 'DM Sans', sans-serif; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; }
+    .profile-tab:hover { color: var(--text); }
+    .profile-tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+    .profile-tab-content { display: none; }
+    .profile-tab-content.active { display: block; }
+
+    /* ── DOCUMENT CARDS ─────────────────────────────────────── */
+    .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .doc-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .doc-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .doc-type { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+    .doc-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .doc-meta { font-size: 11px; color: var(--dim); }
+    .doc-actions { display: flex; gap: 6px; margin-top: 10px; }
+
+    /* ── ACTIVITY TIMELINE ──────────────────────────────────── */
+    .timeline { padding: 4px 0; }
+    .timeline-item { display: flex; gap: 14px; padding: 10px 0; position: relative; }
+    .timeline-item::before { content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+    .timeline-item:last-child::before { display: none; }
+    .timeline-dot { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; position: relative; z-index: 1; background: var(--surface); border: 1px solid var(--border2); }
+    .timeline-content { flex: 1; min-width: 0; padding-top: 5px; }
+    .timeline-title { font-size: 13px; font-weight: 600; }
+    .timeline-meta  { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+    /* ── POLICE CLEARANCE ───────────────────────────────────── */
+    .clearance-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+    .clearance-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .clearance-verified { background: rgba(34,208,114,.15); color: var(--green); border: 1px solid rgba(34,208,114,.3); }
+    .clearance-pending  { background: rgba(240,180,41,.15); color: var(--yellow); border: 1px solid rgba(240,180,41,.3); }
+    .clearance-expired  { background: rgba(240,79,79,.15);  color: var(--red);   border: 1px solid rgba(240,79,79,.3); }
+    .clearance-missing  { background: rgba(90,90,120,.15);  color: var(--dim);   border: 1px solid var(--border2); }
+
+    /* ── NOTES ──────────────────────────────────────────────── */
+    .notes-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+    .note-item { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .note-item .note-meta { font-size: 11px; color: var(--dim); margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .note-item .note-body { font-size: 13px; line-height: 1.5; }
+    .note-form { display: flex; gap: 8px; }
+    .note-form textarea { flex: 1; height: 60px; resize: vertical; font-size: 13px; }
+
+    /* ── LEADERBOARD ────────────────────────────────────────── */
+    .leaderboard-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .leaderboard-item:last-child { border-bottom: none; }
+    .lb-rank { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+    .lb-rank-1 { background: linear-gradient(135deg, #ffd700, #ffb300); color: #000; }
+    .lb-rank-2 { background: linear-gradient(135deg, #c0c0c0, #a0a0a0); color: #000; }
+    .lb-rank-3 { background: linear-gradient(135deg, #cd7f32, #b06000); color: #fff; }
+    .lb-rank-n { background: var(--border2); color: var(--dim); }
+    .lb-info { flex: 1; }
+    .lb-name { font-size: 13px; font-weight: 600; }
+    .lb-city { font-size: 11px; color: var(--dim); }
+    .lb-stat { text-align: right; }
+    .lb-value { font-size: 16px; font-weight: 800; font-family: 'Syne', sans-serif; color: var(--accent2); }
+    .lb-label { font-size: 10px; color: var(--dim); }
+
+    /* ── BULK ACTIONS BAR ───────────────────────────────────── */
+    .bulk-bar {
+      position: sticky; bottom: 20px; left: 50%;
+      transform: translateX(-50%); width: fit-content; z-index: 500;
+      background: var(--card); border: 1px solid var(--accent);
+      border-radius: 14px; padding: 10px 18px;
+      display: none; align-items: center; gap: 12px;
+      box-shadow: 0 8px 40px rgba(124,92,252,.3);
+      font-size: 13px;
+    }
+    .bulk-bar.visible { display: flex; }
+    .bulk-count { font-weight: 700; color: var(--accent2); }
+
+    /* ── ALERTS CENTER ──────────────────────────────────────── */
+    .alert-center-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .alert-center-item:last-child { border-bottom: none; }
+    .alert-center-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .alert-center-body { flex: 1; }
+    .alert-center-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .alert-center-msg { font-size: 12px; color: var(--dim); line-height: 1.5; }
+    .alert-center-time { font-size: 11px; color: var(--dim); font-family: 'IBM Plex Mono', monospace; flex-shrink: 0; }
+    .alert-resolved { opacity: .4; }
+
+    /* ── EXPORTS ────────────────────────────────────────────── */
+    .export-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .export-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; cursor: pointer; transition: all .15s; }
+    .export-card:hover { border-color: var(--accent); background: rgba(124,92,252,.05); }
+    .export-card .ec-icon { font-size: 22px; margin-bottom: 10px; }
+    .export-card .ec-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+    .export-card .ec-desc { font-size: 11px; color: var(--dim); line-height: 1.4; }
+
+    /* ── PERF CHART BARS ────────────────────────────────────── */
+    .perf-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 4px; }
+    .perf-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .5s; }
+
+    /* ── CHECKBOX ───────────────────────────────────────────── */
+    input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
+
+    /* ── INLINE GRID ────────────────────────────────────────── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .two-col, .three-col { grid-template-columns: 1fr; } }
+
+    /* ── SEARCH RESULT FIELD ────────────────────────────────── */
+    .result-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .result-field label { font-size: 11px; color: var(--dim); display: block; margin-bottom: 3px; }
+    .result-field span  { font-size: 13px; font-weight: 500; }
+
+    /* ── EMPTY STATE ────────────────────────────────────────── */
+    .empty { text-align: center; padding: 48px 24px; color: var(--dim); }
+    .empty .ei { font-size: 36px; margin-bottom: 12px; }
+    .empty p { font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Auth Gate ──────────────────────────────────── -->
+<div id="auth-gate">
+  <div class="auth-card">
+    <div class="auth-logo">⚡ Servit <span>Ops</span></div>
+    <p>Internal dashboard — authorised personnel only.</p>
+    <div class="field-label">Admin Password</div>
+    <input type="password" id="admin-pw" placeholder="Enter password" autocomplete="current-password">
+    <button class="btn-primary" onclick="tryLogin()">Sign in →</button>
+    <div class="auth-error" id="auth-error">Incorrect password. Try again.</div>
+  </div>
+</div>
+
+<!-- ── App ────────────────────────────────────────── -->
+<div id="app">
+  <div class="app-layout">
+
+    <!-- ── Sidebar ──────────────────────────────── -->
+    <nav class="sidebar">
+      <div class="sidebar-logo">
+        <div class="live-dot"></div>
+        ⚡ Servit <span>Ops</span>
+      </div>
+      <div class="sidebar-nav">
+        <div class="nav-label">Main</div>
+        <button class="nav-item active" onclick="showPage('overview',this)">
+          <span class="nav-icon">📊</span> Overview
+        </button>
+        <button class="nav-item" onclick="showPage('bookings',this)">
+          <span class="nav-icon">📋</span> Bookings
+        </button>
+        <button class="nav-item" onclick="showPage('customers',this)">
+          <span class="nav-icon">👥</span> Customers
+        </button>
+
+        <div class="nav-label" style="margin-top:8px">Fixers</div>
+        <button class="nav-item" onclick="showPage('fixers',this)">
+          <span class="nav-icon">🔧</span> All Fixers
+        </button>
+        <button class="nav-item" onclick="showPage('applications',this)">
+          <span class="nav-icon">📝</span> Applications
+          <span class="nav-badge" id="nav-pending-badge" style="display:none">0</span>
+        </button>
+        <button class="nav-item" onclick="showPage('leaderboard',this)">
+          <span class="nav-icon">🏆</span> Leaderboard
+        </button>
+
+        <div class="nav-label" style="margin-top:8px">Finance</div>
+        <button class="nav-item" onclick="showPage('payouts',this)">
+          <span class="nav-icon">💳</span> Payouts
+          <span class="nav-badge yellow" id="nav-payouts-badge" style="display:none">0</span>
+        </button>
+        <button class="nav-item" onclick="showPage('disputes',this)">
+          <span class="nav-icon">⚖️</span> Disputes
+          <span class="nav-badge" id="nav-disputes-badge" style="display:none">0</span>
+        </button>
+
+        <div class="nav-label" style="margin-top:8px">System</div>
+        <button class="nav-item" onclick="showPage('alerts',this)">
+          <span class="nav-icon">🔔</span> Alerts
+          <span class="nav-badge" id="nav-alerts-badge" style="display:none">0</span>
+        </button>
+        <button class="nav-item" onclick="showPage('reports',this)">
+          <span class="nav-icon">📈</span> Reports
+        </button>
+        <button class="nav-item" onclick="showPage('settings',this)">
+          <span class="nav-icon">⚙️</span> Settings
+        </button>
+      </div>
+      <div class="sidebar-footer">
+        <strong>Admin</strong>
+        Ops Dashboard · <span id="sidebar-time" style="font-family:'IBM Plex Mono',monospace;font-size:10px"></span>
+      </div>
+    </nav>
+
+    <!-- ── Main Wrap ─────────────────────────────── -->
+    <div class="main-wrap">
+      <!-- Topbar -->
+      <div class="topbar">
+        <div class="topbar-title" id="topbar-title">Overview</div>
+        <div class="topbar-right">
+          <span id="last-updated" style="font-size:11px;color:var(--dim);font-family:'IBM Plex Mono',monospace">—</span>
+          <select class="period-select" id="period-select" onchange="loadAll()">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+          </select>
+          <div class="icon-btn" onclick="loadAll()" title="Refresh">↻</div>
+        </div>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="search-bar-wrap">
+        <div class="search-inner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="search" id="global-search" placeholder="Search by customer email, booking ID, or fixer name…" oninput="handleSearch(this.value)">
+        </div>
+        <div class="search-type-tabs">
+          <button class="search-tab active" onclick="setSearchType('all',this)">All</button>
+          <button class="search-tab" onclick="setSearchType('customer',this)">Customer</button>
+          <button class="search-tab" onclick="setSearchType('booking',this)">Booking</button>
+          <button class="search-tab" onclick="setSearchType('fixer',this)">Fixer</button>
+        </div>
+      </div>
+      <div id="search-results"></div>
+
+      <!-- ── PAGE: OVERVIEW ─────────────────────── -->
+      <div class="page active" id="page-overview">
+        <div id="alerts-banner"></div>
+        <div class="metrics-grid" id="metrics-grid"><div class="loader">Loading metrics…</div></div>
+        <div class="two-col">
+          <div class="section">
+            <div class="section-header"><h2>Revenue Breakdown</h2></div>
+            <div class="metrics-grid" id="revenue-grid" style="margin-bottom:0"><div class="loader">Loading revenue…</div></div>
+          </div>
+          <div class="section">
+            <div class="section-header"><h2>Booking Funnel</h2></div>
+            <div class="table-wrap" id="funnel-section" style="padding:20px 24px"><div class="loader">Loading…</div></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header"><h2>Cancellation Breakdown</h2><span style="font-size:11px;color:var(--dim)">(latest week)</span></div>
+          <div class="table-wrap" id="cancel-section" style="padding:20px 24px"><div class="loader">Loading…</div></div>
+        </div>
+        <div style="margin-top:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:12px;font-size:12px;color:var(--dim);line-height:1.7">
+          <strong style="color:var(--yellow)">⚠ Security note</strong> — The Supabase service key is injected client-side. This is acceptable for a zero-infrastructure internal tool accessed by a trusted team only. Replace with a server-side proxy before broader sharing. The admin password is validated client-side — treat this URL as a secret.
+        </div>
+      </div>
+
+      <!-- ── PAGE: BOOKINGS ─────────────────────── -->
+      <div class="page" id="page-bookings">
+        <div class="section">
+          <div class="section-header">
+            <h2>All Bookings</h2>
+            <div class="section-header-actions">
+              <select class="period-select" id="bookings-status-filter" onchange="filterBookingsTable()">
+                <option value="">All statuses</option>
+                <option value="completed">Completed</option>
+                <option value="in_progress">In Progress</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="pending">Pending</option>
+              </select>
+              <button class="btn-sm" onclick="exportBookingsCSV()">⬇ Export CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="bookings-section"><div class="loader">Loading bookings…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: CUSTOMERS ────────────────────── -->
+      <div class="page" id="page-customers">
+        <div class="section">
+          <div class="section-header"><h2>Customers</h2>
+            <div class="section-header-actions">
+              <button class="btn-sm" onclick="exportCustomersCSV()">⬇ Export CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="customers-section"><div class="loader">Loading customers…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: FIXERS ───────────────────────── -->
+      <div class="page" id="page-fixers">
+        <div class="section">
+          <div class="section-header">
+            <h2>Fixer Performance</h2>
+            <div class="section-header-actions">
+              <select class="period-select" id="fixer-status-filter" onchange="filterFixersTable()">
+                <option value="">All statuses</option>
+                <option value="approved">Approved</option>
+                <option value="suspended">Suspended</option>
+                <option value="pending">Pending</option>
+              </select>
+              <button class="btn-sm" onclick="bulkApproveSelected()">✓ Bulk Approve</button>
+              <button class="btn-sm" onclick="bulkSuspendSelected()" style="background:rgba(240,180,41,.15);color:var(--yellow);border-color:rgba(240,180,41,.3)">⏸ Bulk Suspend</button>
+              <button class="btn-sm" onclick="exportFixersCSV()">⬇ Export CSV</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="fixer-section"><div class="loader">Loading fixers…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: FIXER PROFILE ────────────────── -->
+      <div class="page" id="page-fixer-profile">
+        <button class="btn-sm" onclick="showPage('fixers',document.querySelector('.nav-item:nth-child(4)'));loadFixers(getPeriod())" style="margin-bottom:16px">← Back to Fixers</button>
+        <div id="fixer-profile-header-wrap"></div>
+        <div class="profile-tabs">
+          <button class="profile-tab active" onclick="switchProfileTab('overview',this)">Overview</button>
+          <button class="profile-tab" onclick="switchProfileTab('application',this)">Application</button>
+          <button class="profile-tab" onclick="switchProfileTab('uploads',this)">Documents</button>
+          <button class="profile-tab" onclick="switchProfileTab('jobs',this)">Jobs</button>
+          <button class="profile-tab" onclick="switchProfileTab('earnings',this)">Earnings</button>
+          <button class="profile-tab" onclick="switchProfileTab('performance',this)">Performance</button>
+          <button class="profile-tab" onclick="switchProfileTab('notes',this)">Notes</button>
+          <button class="profile-tab" onclick="switchProfileTab('activity',this)">Activity Log</button>
+        </div>
+        <div class="profile-tab-content active" id="ptab-overview"></div>
+        <div class="profile-tab-content" id="ptab-application"></div>
+        <div class="profile-tab-content" id="ptab-uploads"></div>
+        <div class="profile-tab-content" id="ptab-jobs"></div>
+        <div class="profile-tab-content" id="ptab-earnings"></div>
+        <div class="profile-tab-content" id="ptab-performance"></div>
+        <div class="profile-tab-content" id="ptab-notes"></div>
+        <div class="profile-tab-content" id="ptab-activity"></div>
+      </div>
+
+      <!-- ── PAGE: APPLICATIONS ─────────────────── -->
+      <div class="page" id="page-applications">
+        <div class="section">
+          <div class="section-header">
+            <h2>Pending Applications</h2>
+            <span class="badge badge-red" id="pending-badge" style="display:none"></span>
+            <div class="section-header-actions">
+              <button class="btn-approve" onclick="bulkApproveAllPending()">✓ Approve All</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="pending-section"><div class="loader">Loading applications…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: LEADERBOARD ──────────────────── -->
+      <div class="page" id="page-leaderboard">
+        <div class="three-col">
+          <div class="section">
+            <div class="section-header"><h2>🏆 Top by Completion Rate</h2></div>
+            <div class="table-wrap" id="lb-completion"></div>
+          </div>
+          <div class="section">
+            <div class="section-header"><h2>⭐ Top by Rating</h2></div>
+            <div class="table-wrap" id="lb-rating"></div>
+          </div>
+          <div class="section">
+            <div class="section-header"><h2>💼 Top by Jobs Done</h2></div>
+            <div class="table-wrap" id="lb-jobs"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: PAYOUTS ──────────────────────── -->
+      <div class="page" id="page-payouts">
+        <div class="section">
+          <div class="section-header">
+            <h2>Payouts Queue</h2>
+            <span class="badge badge-yellow" id="payouts-badge" style="display:none"></span>
+          </div>
+          <div class="security-note">
+            <span>⚠️</span>
+            <div><strong>Account numbers not shown</strong>Account numbers are stored encrypted and cannot be decrypted client-side. To process EFTs, export the payout list and decrypt server-side, or process via your banking portal.</div>
+          </div>
+          <div class="table-wrap" id="payouts-section"><div class="loader">Loading payouts…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: DISPUTES ─────────────────────── -->
+      <div class="page" id="page-disputes">
+        <div class="section">
+          <div class="section-header">
+            <h2>Open Disputes</h2>
+            <span class="badge badge-red" id="disputes-badge" style="display:none"></span>
+          </div>
+          <div class="table-wrap" id="disputes-section"><div class="loader">Loading disputes…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: ALERTS ───────────────────────── -->
+      <div class="page" id="page-alerts">
+        <div class="section">
+          <div class="section-header">
+            <h2>Alert Centre</h2>
+            <span class="badge badge-red" id="alerts-count-badge" style="display:none"></span>
+            <div class="section-header-actions">
+              <button class="btn-sm" onclick="resolveAllAlerts()">✓ Mark All Resolved</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="alerts-center"><div class="loader">Loading alerts…</div></div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: REPORTS ──────────────────────── -->
+      <div class="page" id="page-reports">
+        <div class="section">
+          <div class="section-header"><h2>Export & Reports</h2></div>
+          <p style="font-size:13px;color:var(--dim);margin-bottom:20px">Generate and download data exports. All exports reflect the current period filter.</p>
+          <div class="export-grid">
+            <div class="export-card" onclick="exportFixersCSV()">
+              <div class="ec-icon">🔧</div>
+              <div class="ec-title">Fixer Profiles</div>
+              <div class="ec-desc">All fixer data including status, performance, bank details (masked)</div>
+            </div>
+            <div class="export-card" onclick="exportBookingsCSV()">
+              <div class="ec-icon">📋</div>
+              <div class="ec-title">Booking History</div>
+              <div class="ec-desc">Full booking log with customer, fixer, status, amounts</div>
+            </div>
+            <div class="export-card" onclick="exportPayoutsCSV()">
+              <div class="ec-icon">💳</div>
+              <div class="ec-title">Payout History</div>
+              <div class="ec-desc">Released payouts with net amounts and bank details</div>
+            </div>
+            <div class="export-card" onclick="exportCustomersCSV()">
+              <div class="ec-icon">👥</div>
+              <div class="ec-title">Customer List</div>
+              <div class="ec-desc">Registered customers with contact info and booking count</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: SETTINGS ─────────────────────── -->
+      <div class="page" id="page-settings">
+        <div class="section" style="max-width:540px">
+          <div class="section-header"><h2>Settings</h2></div>
+          <div class="table-wrap" style="padding:24px">
+            <div style="margin-bottom:20px">
+              <div class="field-label">Supabase URL <span style="color:#5a5a78;font-weight:400;font-size:11px">(read-only — injected server-side)</span></div>
+              <!-- READ-ONLY: this URL is injected by serve-admin-dashboard.js from the
+                   SUPABASE_URL env var at request time. It cannot be changed here.
+                   All DB operations go through ops-proxy.js (server-side) which reads
+                   the env var directly — this field is purely informational. -->
+              <input type="text" id="cfg-url" value="" readonly
+                style="background:#0d0d16;color:#5a5a78;cursor:default;border-color:#2a2a3a"
+                title="Read-only — set SUPABASE_URL in Netlify environment variables">
+            </div>
+            <div style="margin-bottom:20px;padding:14px 16px;background:#16161f;border-radius:8px;border:1px solid #2a2a3a">
+              <div style="font-size:12px;font-weight:600;color:#a78bfa;margin-bottom:6px">🔒 Service Key</div>
+              <div style="font-size:12px;color:#5a5a78;line-height:1.6">
+                Never exposed to the browser. All Supabase calls go through
+                <code style="color:#a78bfa;background:#0d0d16;padding:1px 5px;border-radius:3px">ops-proxy.js</code>
+                which reads <code style="color:#a78bfa;background:#0d0d16;padding:1px 5px;border-radius:3px">SUPABASE_SERVICE_KEY</code>
+                from Netlify environment variables server-side.
+              </div>
+            </div>
+            <div style="margin-bottom:20px;padding:14px 16px;background:#16161f;border-radius:8px;border:1px solid #2a2a3a">
+              <div style="font-size:12px;font-weight:600;color:#a78bfa;margin-bottom:6px">🔑 Admin Password</div>
+              <div style="font-size:12px;color:#5a5a78;line-height:1.6">
+                Enforced server-side via HTTP Basic Auth. To change it, update
+                <code style="color:#a78bfa;background:#0d0d16;padding:1px 5px;border-radius:3px">ADMIN_DASHBOARD_PASSWORD</code>
+                in Netlify → Site settings → Environment variables, then redeploy.
+              </div>
+            </div>
+            <div style="font-size:12px;color:#3a3a52;margin-top:8px">
+              ℹ️ All credentials are managed server-side. There is nothing to save here.
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end main-wrap -->
+  </div><!-- end app-layout -->
+</div><!-- end app -->
+
+<!-- ── Bulk Actions Bar ────────────────────────────── -->
+<div class="bulk-bar" id="bulk-bar">
+  <span class="bulk-count" id="bulk-count">0 selected</span>
+  <button class="btn-approve" onclick="bulkApproveSelected()">✓ Approve</button>
+  <button class="btn-suspend" onclick="bulkSuspendSelected()">⏸ Suspend</button>
+  <button class="btn-reject" onclick="bulkRejectSelected()">✕ Remove</button>
+  <button class="btn-sm" onclick="clearBulkSelection()">Cancel</button>
+</div>
+
+<!-- ── Confirm Modal ──────────────────────────────── -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closeModal('confirm-modal')">✕</button>
+    <h3 id="confirm-title">Confirm Action</h3>
+    <p id="confirm-body" style="font-size:14px;color:var(--dim);line-height:1.6"></p>
+    <div class="confirm-actions">
+      <button class="btn-cancel-modal" onclick="closeModal('confirm-modal')">Cancel</button>
+      <button class="btn-confirm-modal" id="confirm-btn" onclick="confirmAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Booking Detail Modal ──────────────────────── -->
+<div class="modal-overlay" id="booking-modal">
+  <div class="modal" style="max-width:620px">
+    <button class="modal-close" onclick="closeModal('booking-modal')">✕</button>
+    <h3>Booking Detail</h3>
+    <div id="booking-modal-content"><div class="loader">Loading…</div></div>
+  </div>
+</div>
+
+<!-- ── Fixer Action Modal ─────────────────────────── -->
+<div class="modal-overlay" id="fixer-modal">
+  <div class="modal" style="max-width:460px">
+    <button class="modal-close" onclick="closeModal('fixer-modal')">✕</button>
+    <h3 id="fixer-modal-title">Fixer Actions</h3>
+    <p id="fixer-modal-name" style="color:var(--dim);font-size:13px;margin-bottom:20px"></p>
+    <div style="display:flex;flex-direction:column;gap:10px" id="fixer-modal-actions"></div>
+  </div>
+</div>
+
+<!-- ── Toast ──────────────────────────────────────── -->
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────
+// CONFIG
+// Only the Supabase URL is injected client-side by serve-admin-dashboard.js.
+// The service key and admin password are NEVER sent to the browser.
+// Authentication is handled entirely server-side via HTTP Basic Auth.
+// ─────────────────────────────────────────────────────────────────
+const CONFIG = {
+  supabaseUrl: window._SUPABASE_URL || '',
+  serviceKey:  '',  // intentionally empty — managed server-side only
+};
+
+// Guard: abort immediately if the page was opened directly from disk
+// or without going through the serverless function, so credentials
+// are never accidentally missing and the broken state is obvious.
+if (!CONFIG.supabaseUrl) {
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;
+                background:#09090f;color:#e4e4f0;font-family:'DM Sans',sans-serif;
+                text-align:center;padding:24px;">
+      <div>
+        <div style="font-size:40px;margin-bottom:20px;">⚠️</div>
+        <div style="font-size:20px;font-weight:700;margin-bottom:10px;">Dashboard not configured</div>
+        <div style="color:#5a5a78;max-width:460px;line-height:1.65;font-size:14px;">
+          This file must be served through the Netlify function so that
+          credentials are injected at request time. Opening it directly
+          from disk is not supported.<br><br>
+          Access it at
+          <code style="background:#16161f;padding:2px 8px;border-radius:5px;
+                        color:#a78bfa;">/ops</code>
+          after deploying, or run
+          <code style="background:#16161f;padding:2px 8px;border-radius:5px;
+                        color:#a78bfa;">netlify dev</code>
+          locally.
+        </div>
+      </div>
+    </div>`;
+  throw new Error('Dashboard opened without server-side credential injection — aborting.');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AUTH
+// HTTP Basic Auth is enforced server-side in serve-admin-dashboard.js.
+// If this page is being served, the user has already authenticated.
+// The client-side password prompt has been removed — it provided no
+// real security since it could be bypassed via the browser console.
+// ─────────────────────────────────────────────────────────────────
+// Hide the auth gate immediately (HTTP Basic has already authenticated the user)
+const authGate = document.getElementById('auth-gate');
+if (authGate) authGate.style.display = 'none';
+const appEl = document.getElementById('app');
+if (appEl) appEl.style.display = 'block';
+initApp();
+
+function initApp() {
+  loadAll();
+  setInterval(updateSidebarTime, 1000);
+  updateSidebarTime();
+  document.getElementById('cfg-url').value = CONFIG.supabaseUrl;
+  // cfg-key field has been removed — service key is never sent to the browser.
+}
+
+function updateSidebarTime() {
+  const el = document.getElementById('sidebar-time');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-ZA');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────────────────────────────
+function showPage(name, navEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const page = document.getElementById(`page-${name}`);
+  if (page) page.classList.add('active');
+  if (navEl) navEl.classList.add('active');
+  const titles = { overview:'Overview', bookings:'Bookings', customers:'Customers', fixers:'All Fixers', 'fixer-profile':'Fixer Profile', applications:'Applications', leaderboard:'Leaderboard', payouts:'Payouts Queue', disputes:'Open Disputes', alerts:'Alert Centre', reports:'Reports & Exports', settings:'Settings' };
+  document.getElementById('topbar-title').textContent = titles[name] || name;
+  // Lazy load sections
+  if (name === 'bookings'    && !document.getElementById('bookings-section')._loaded) loadBookings();
+  if (name === 'customers'   && !document.getElementById('customers-section')._loaded) loadCustomers();
+  if (name === 'leaderboard' && !document.getElementById('lb-completion')._loaded) loadLeaderboard();
+  if (name === 'alerts') renderAlertsCenter();
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SUPABASE HELPERS — all calls proxied server-side via ops-proxy.js
+// The service key never leaves the server. The proxy validates the
+// same HTTP Basic credentials used to access the dashboard itself.
+// ─────────────────────────────────────────────────────────────────
+const OPS_PROXY = '/.netlify/functions/ops-proxy';
+
+// Build the Basic auth header from the credential stored in sessionStorage
+// (set during the HTTP Basic challenge — browsers cache it automatically,
+// but we need it for programmatic fetch calls).
+function _proxyHeaders() {
+  return {
+    'Content-Type':  'application/json',
+    'Authorization': _basicAuthHeader(),
+  };
+}
+
+function _basicAuthHeader() {
+  // Browsers that passed HTTP Basic will have the credential cached.
+  // We store it on first successful load so JS fetch calls can reuse it.
+  if (window._opsBasicCred) return `Basic ${window._opsBasicCred}`;
+  // Fallback: prompt once and cache for the session
+  const pw = prompt('Re-enter ops password to authorise API calls:') || '';
+  window._opsBasicCred = btoa(`:${pw}`);
+  return `Basic ${window._opsBasicCred}`;
+}
+
+async function callRpc(fnName, params = {}) {
+  const res = await fetch(OPS_PROXY, {
+    method: 'POST',
+    headers: _proxyHeaders(),
+    body: JSON.stringify({ op: 'rpc', fn: fnName, params }),
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error(`${fnName}: ${e}`); }
+  return res.json();
+}
+
+async function queryView(view, filter = '') {
+  const res = await fetch(OPS_PROXY, {
+    method: 'POST',
+    headers: _proxyHeaders(),
+    body: JSON.stringify({ op: 'query', view, filter }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`${view} query failed (${res.status}): ${errText}`);
+  }
+  return res.json();
+}
+
+async function patchRow(table, id, data) {
+  const res = await fetch(OPS_PROXY, {
+    method: 'POST',
+    headers: _proxyHeaders(),
+    body: JSON.stringify({ op: 'patch', table, id, data }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`HTTP ${res.status}: ${body}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TOAST & MODAL
+// ─────────────────────────────────────────────────────────────────
+let _toastTimer;
+function toast(msg, type = 'green') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show toast-${type}`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.className = ''; }, 3200);
+}
+
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+
+let _pendingAction = null;
+function requireConfirm(title, body, btnLabel, btnClass, fn) {
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-body').textContent  = body;
+  const btn = document.getElementById('confirm-btn');
+  btn.textContent  = btnLabel;
+  btn.className    = 'btn-confirm-modal ' + (btnClass || '');
+  _pendingAction   = fn;
+  openModal('confirm-modal');
+}
+function confirmAction() {
+  closeModal('confirm-modal');
+  if (_pendingAction) { _pendingAction(); _pendingAction = null; }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LOAD ALL
+// ─────────────────────────────────────────────────────────────────
+function getPeriod() { return parseInt(document.getElementById('period-select')?.value || '30'); }
+
+async function loadAll() {
+  const days = getPeriod();
+  document.getElementById('last-updated').textContent = 'Loading…';
+  await Promise.allSettled([
+    loadHealth(days),
+    loadRevenue(days),
+    loadFunnel(),
+    loadCancellations(),
+    loadDisputes(),
+    loadPayoutsQueue(),
+    loadPending(),
+    loadFixers(days),
+  ]);
+  document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-ZA');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MARKETPLACE HEALTH
+// ─────────────────────────────────────────────────────────────────
+async function loadHealth(days) {
+  try {
+    const [h, alerts] = await Promise.all([
+      callRpc('get_marketplace_health', { p_days: days }),
+      callRpc('get_health_alerts', { p_days: 7 }),
+    ]);
+    renderHealth(h, days);
+    _alertsData = alerts || [];
+    renderAlerts(alerts);
+    renderAlertsBadge(alerts);
+  } catch (err) {
+    document.getElementById('metrics-grid').innerHTML = `<div class="loader">⚠️ Could not load metrics: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderHealth(h, days) {
+  const matchOk = h.match_rate_pct >= 70;
+  const compOk  = h.completion_rate_pct >= 80;
+  const speedOk = (h.median_seconds_to_match || 0) <= 300;
+  document.getElementById('metrics-grid').innerHTML = `
+    <div class="metric ${matchOk?'ok':'alert'}">
+      <div class="label">Match Rate</div>
+      <div class="value ${pctClass(h.match_rate_pct,70,85)}">${h.match_rate_pct??'—'}%</div>
+      <div class="sub">Target ≥ 70%</div>
+    </div>
+    <div class="metric ${compOk?'ok':'alert'}">
+      <div class="label">Completion Rate</div>
+      <div class="value ${pctClass(h.completion_rate_pct,80,90)}">${h.completion_rate_pct??'—'}%</div>
+      <div class="sub">Target ≥ 80%</div>
+    </div>
+    <div class="metric ${speedOk?'ok':'alert'}">
+      <div class="label">Median to Match</div>
+      <div class="value ${speedOk?'pct-good':'pct-bad'}">${fmtSeconds(h.median_seconds_to_match)}</div>
+      <div class="sub">Target ≤ 300s</div>
+    </div>
+    <div class="metric">
+      <div class="label">Bookings Created</div>
+      <div class="value">${h.bookings_created??'—'}</div>
+      <div class="sub">${days}-day window</div>
+    </div>
+    <div class="metric">
+      <div class="label">Matched</div>
+      <div class="value">${h.bookings_matched??'—'}</div>
+      <div class="sub">${h.bookings_created ? Math.round((h.bookings_matched/h.bookings_created)*100)+'%' : '—'} of total</div>
+    </div>
+    <div class="metric">
+      <div class="label">Completed</div>
+      <div class="value">${h.bookings_completed??'—'}</div>
+      <div class="sub">${h.median_minutes_to_complete??'—'} min avg</div>
+    </div>
+    <div class="metric">
+      <div class="label">Cancelled</div>
+      <div class="value" style="color:var(--yellow)">${h.bookings_cancelled??'—'}</div>
+      <div class="sub">${h.bookings_created ? Math.round((h.bookings_cancelled/h.bookings_created)*100)+'%' : '—'} rate</div>
+    </div>
+    <div class="metric">
+      <div class="label">Busiest City</div>
+      <div class="value" style="font-size:17px">${h.busiest_city??'—'}</div>
+      <div class="sub">by booking volume</div>
+    </div>
+    ${(h.unmatched_categories||[]).length?`
+    <div class="metric" style="grid-column:span 2">
+      <div class="label">Unmatched Categories</div>
+      <div style="font-size:13px;line-height:1.8;color:var(--red)">${(h.unmatched_categories||[]).join(' · ')}</div>
+    </div>`:''}
+  `;
+}
+
+let _alertsData = [];
+
+function renderAlerts(alerts) {
+  const banner = document.getElementById('alerts-banner');
+  if (!alerts?.length) { banner.style.display = 'none'; return; }
+  banner.style.display = 'block';
+  banner.innerHTML = alerts.slice(0,3).map(a => `
+    <div class="alert-item ${a.severity==='warning'?'yellow-alert':''}"><span>${a.severity==='warning'?'⚠️':'🚨'}</span><span>${esc(a.message)}</span>
+    <button class="btn-sm" style="margin-left:auto;font-size:10px;padding:3px 8px" onclick="showPage('alerts',null)">View</button></div>
+  `).join('');
+}
+
+function renderAlertsBadge(alerts) {
+  const badge = document.getElementById('nav-alerts-badge');
+  if (alerts?.length) { badge.style.display='inline'; badge.textContent = alerts.length; } else { badge.style.display='none'; }
+  const cb = document.getElementById('alerts-count-badge');
+  if (cb) { if (alerts?.length) { cb.style.display='inline'; cb.textContent=alerts.length; } else { cb.style.display='none'; } }
+}
+
+function renderAlertsCenter() {
+  const el = document.getElementById('alerts-center');
+  if (!_alertsData?.length) {
+    el.innerHTML = '<div class="empty"><div class="ei">✅</div><p>No active alerts. All systems healthy.</p></div>';
+    return;
+  }
+  el.innerHTML = _alertsData.map(a => `
+    <div class="alert-center-item" id="ac-${esc(a.id||a.message?.slice(0,20)?.replace(/\s/g,''))}">
+      <div class="alert-center-icon" style="background:${a.severity==='warning'?'rgba(240,180,41,.1)':'rgba(240,79,79,.1)'}">
+        ${a.severity==='warning'?'⚠️':'🚨'}
+      </div>
+      <div class="alert-center-body">
+        <div class="alert-center-title">${esc(a.type||'System Alert')}</div>
+        <div class="alert-center-msg">${esc(a.message||'—')}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <div class="alert-center-time">${new Date().toLocaleDateString('en-ZA')}</div>
+        <button class="btn-sm" style="font-size:10px;padding:3px 8px" onclick="markAlertResolved(this)">Mark Resolved</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function markAlertResolved(btn) {
+  const item = btn.closest('.alert-center-item');
+  item.classList.add('alert-resolved');
+  btn.textContent = '✓ Resolved';
+  btn.disabled = true;
+  toast('Alert marked as resolved', 'green');
+}
+
+function resolveAllAlerts() {
+  document.querySelectorAll('.alert-center-item:not(.alert-resolved)').forEach(item => {
+    item.classList.add('alert-resolved');
+    const btn = item.querySelector('button');
+    if (btn) { btn.textContent = '✓ Resolved'; btn.disabled = true; }
+  });
+  toast('All alerts resolved', 'green');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// REVENUE
+// ─────────────────────────────────────────────────────────────────
+async function loadRevenue(days) {
+  try {
+    const rows = await queryView('revenue_summary', `order=day.desc&limit=${days}`);
+    renderRevenue(rows);
+  } catch (err) {
+    document.getElementById('revenue-grid').innerHTML = `<div class="loader">Revenue view unavailable — run 09_yoco_fees.sql first</div>`;
+  }
+}
+
+function renderRevenue(rows) {
+  if (!rows?.length) { document.getElementById('revenue-grid').innerHTML='<div class="loader">No completed bookings yet.</div>'; return; }
+  const t = rows.reduce((a, r) => ({
+    gsv:     (a.gsv||0)     + Number(r.gross_service_value||0),
+    revenue: (a.revenue||0) + Number(r.servit_revenue||0),
+    yoco:    (a.yoco||0)    + Number(r.total_yoco_fees_paid||0),
+    payouts: (a.payouts||0) + Number(r.total_fixer_payouts||0),
+    credits: (a.credits||0) + Number(r.wallet_credits_redeemed||0),
+    net:     (a.net||0)     + Number(r.net_servit_cash||0),
+  }), {});
+  document.getElementById('revenue-grid').innerHTML = `
+    <div class="metric"><div class="label">Gross Service Value</div><div class="value" style="font-size:20px">R ${t.gsv.toFixed(0)}</div><div class="sub">Total quoted</div></div>
+    <div class="metric ok"><div class="label">Servit Revenue (10%)</div><div class="value pct-good" style="font-size:20px">R ${t.revenue.toFixed(0)}</div><div class="sub">Platform commission</div></div>
+    <div class="metric"><div class="label">Yoco Fees</div><div class="value" style="font-size:20px;color:var(--yellow)">R ${t.yoco.toFixed(0)}</div><div class="sub">2.95% pass-through</div></div>
+    <div class="metric"><div class="label">Fixer Payouts</div><div class="value" style="font-size:20px">R ${t.payouts.toFixed(0)}</div><div class="sub">90% of service value</div></div>
+    <div class="metric"><div class="label">Credits Used</div><div class="value" style="font-size:20px;color:var(--yellow)">R ${t.credits.toFixed(0)}</div><div class="sub">Referral credits</div></div>
+    <div class="metric ${t.net>0?'ok':'alert'}"><div class="label">Net Cash</div><div class="value ${t.net>0?'pct-good':'pct-bad'}" style="font-size:20px">R ${t.net.toFixed(0)}</div><div class="sub">Revenue minus credits</div></div>
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FUNNEL
+// ─────────────────────────────────────────────────────────────────
+async function loadFunnel() {
+  try {
+    const rows = await queryView('marketplace_funnel', 'order=day.desc&limit=30');
+    renderFunnel(rows);
+  } catch (err) {
+    document.getElementById('funnel-section').innerHTML = `<div class="loader">Could not load funnel</div>`;
+  }
+}
+
+function renderFunnel(rows) {
+  if (!rows?.length) { document.getElementById('funnel-section').innerHTML='<div class="loader">No data yet.</div>'; return; }
+  const t = rows.reduce((acc,r) => ({
+    created:   (acc.created||0)   + (r.bookings_created||0),
+    paid:      (acc.paid||0)      + (r.bookings_paid||0),
+    matched:   (acc.matched||0)   + (r.bookings_matched||0),
+    completed: (acc.completed||0) + (r.bookings_completed||0),
+    cancelled: (acc.cancelled||0) + (r.bookings_cancelled||0),
+  }), {});
+  const max = t.created || 1;
+  const steps = [
+    { label: 'Created',   count: t.created,   pct: 100 },
+    { label: 'Paid',      count: t.paid,      pct: Math.round((t.paid/max)*100) },
+    { label: 'Matched',   count: t.matched,   pct: Math.round((t.matched/max)*100) },
+    { label: 'Completed', count: t.completed, pct: Math.round((t.completed/max)*100) },
+    { label: 'Cancelled', count: t.cancelled, pct: Math.round((t.cancelled/max)*100) },
+  ];
+  document.getElementById('funnel-section').innerHTML = steps.map(s => `
+    <div class="funnel-row">
+      <div class="funnel-label">${s.label}</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${s.pct}%"></div></div>
+      <div class="funnel-count">${s.count}</div>
+    </div>
+  `).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CANCELLATIONS
+// ─────────────────────────────────────────────────────────────────
+async function loadCancellations() {
+  try {
+    const rows = await queryView('cancellation_breakdown', 'order=week.desc&limit=20');
+    renderCancellations(rows);
+  } catch (err) {
+    document.getElementById('cancel-section').innerHTML = `<div class="loader">Could not load cancellations</div>`;
+  }
+}
+
+function renderCancellations(rows) {
+  if (!rows?.length) { document.getElementById('cancel-section').innerHTML='<div class="loader">No cancellations recorded yet.</div>'; return; }
+  const latestWeek = rows[0].week;
+  const thisWeek   = rows.filter(r => r.week === latestWeek);
+  const total      = thisWeek.reduce((a,r) => a+(r.count||0), 0);
+  document.getElementById('cancel-section').innerHTML = `
+    <div style="font-size:12px;color:var(--dim);margin-bottom:16px">Week of ${latestWeek} — <strong style="color:var(--text)">${total}</strong> cancellations</div>
+    <div class="cancel-rows">
+      ${thisWeek.map(r => `
+        <div class="cancel-row">
+          <div class="cancel-key">${(r.cancellation_reason||'unknown').replace(/_/g,' ')}</div>
+          <div class="cancel-bar-wrap"><div class="cancel-bar" style="width:${r.pct_of_week||0}%"></div></div>
+          <div class="cancel-pct">${r.pct_of_week??0}%</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DISPUTES
+// ─────────────────────────────────────────────────────────────────
+async function loadDisputes() {
+  try {
+    const rows = await queryView('disputes', 'resolved_at=is.null&order=created_at.asc&select=id,reason,evidence_url,admin_notes,created_at,booking_id');
+    if (!rows?.length) { renderDisputes([], {}); return; }
+    const bookingIds = [...new Set(rows.map(r => r.booking_id).filter(Boolean))];
+    let bookingMap = {};
+    if (bookingIds.length) {
+      try {
+        const bookings = await queryView('bookings', `id=in.(${bookingIds.join(',')})&select=id,customer_id,fixer_id,category,city,total_amount`);
+        bookings.forEach(b => bookingMap[b.id] = b);
+        const customerIds = [...new Set(bookings.map(b=>b.customer_id).filter(Boolean))];
+        const fixerIds    = [...new Set(bookings.map(b=>b.fixer_id).filter(Boolean))];
+        const [customers, fixers] = await Promise.all([
+          customerIds.length ? queryView('profiles', `id=in.(${customerIds.join(',')})&select=id,full_name,email`) : [],
+          fixerIds.length    ? queryView('fixers',    `id=in.(${fixerIds.join(',')})&select=id,full_name`) : [],
+        ]);
+        const custMap = {}; customers.forEach(c => custMap[c.id] = c);
+        const fixMap  = {}; fixers.forEach(f => fixMap[f.id] = f);
+        Object.values(bookingMap).forEach(b => {
+          b._customerName = custMap[b.customer_id]?.full_name || custMap[b.customer_id]?.email || b.customer_id || '—';
+          b._fixerName    = fixMap[b.fixer_id]?.full_name || b.fixer_id || '—';
+        });
+      } catch (_) {}
+    }
+    renderDisputes(rows, bookingMap);
+  } catch (e) {
+    document.getElementById('disputes-section').innerHTML = `<div class="loader">Could not load disputes: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderDisputes(rows, bookingMap = {}) {
+  const badge = document.getElementById('disputes-badge');
+  const navBadge = document.getElementById('nav-disputes-badge');
+  if (!rows?.length) {
+    if (badge) { badge.style.display = 'none'; }
+    if (navBadge) { navBadge.style.display = 'none'; }
+    document.getElementById('disputes-section').innerHTML = '<div class="empty"><div class="ei">🎉</div><p>No open disputes.</p></div>';
+    return;
+  }
+  if (badge) { badge.style.display='inline'; badge.textContent=rows.length; }
+  if (navBadge) { navBadge.style.display='inline'; navBadge.textContent=rows.length; }
+  document.getElementById('disputes-section').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Raised</th><th>Booking</th><th>Customer</th><th>Fixer</th><th>Reason</th><th>Evidence</th><th>Notes</th><th>Resolve</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(d => {
+          const b = bookingMap[d.booking_id] || {};
+          return `<tr id="dispute-row-${d.id}">
+            <td style="white-space:nowrap;color:var(--dim);font-size:12px">${new Date(d.created_at).toLocaleDateString('en-ZA')}</td>
+            <td>
+              ${d.booking_id ? `<button class="btn-action" onclick="openBookingDetail('${d.booking_id}')" style="font-family:'IBM Plex Mono',monospace;font-size:10px">${d.booking_id.slice(0,8)}…</button>` : '<span style="color:var(--dim)">—</span>'}
+              ${b.category ? `<div style="font-size:10px;color:var(--dim);margin-top:3px">${esc(b.category)}${b.city?` · ${esc(b.city)}`:''}</div>` : ''}
+              ${b.total_amount ? `<div style="font-size:11px;font-weight:700">R${Number(b.total_amount).toFixed(2)}</div>` : ''}
+            </td>
+            <td style="font-size:12px">${esc(b._customerName||'—')}</td>
+            <td style="font-size:12px">${esc(b._fixerName||'—')}</td>
+            <td style="max-width:160px;font-size:12px">${esc(d.reason||'—')}</td>
+            <td>${d.evidence_url?`<a href="${esc(d.evidence_url)}" target="_blank" style="color:var(--blue);font-size:12px">View</a>`:'<span style="color:var(--dim)">—</span>'}</td>
+            <td>
+              <input type="text" id="dnotes-${d.id}" placeholder="Notes…" style="background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:4px 8px;font-size:12px;width:120px;font-family:'DM Sans',sans-serif">
+            </td>
+            <td style="white-space:nowrap">
+              <div style="display:flex;flex-wrap:wrap;gap:4px">
+                <button class="btn-approve" onclick="resolveDispute('${d.id}','refund_customer',this)">Refund</button>
+                <button class="btn-suspend" onclick="resolveDispute('${d.id}','pay_fixer',this)">Pay Fixer</button>
+                <button class="btn-action"  onclick="resolveDispute('${d.id}','split',this)">Split</button>
+                <button class="btn-reject"  onclick="resolveDispute('${d.id}','dismissed',this)">Dismiss</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function resolveDispute(disputeId, outcome, btn) {
+  const row  = document.getElementById(`dispute-row-${disputeId}`);
+  const btns = row.querySelectorAll('button');
+  const notes = document.getElementById(`dnotes-${disputeId}`)?.value || null;
+  btns.forEach(b => b.disabled = true);
+  btn.textContent = 'Saving…';
+  try {
+    await patchRow('disputes', disputeId, { outcome, admin_notes: notes, resolved_at: new Date().toISOString() });
+    row.style.transition = 'opacity .3s'; row.style.opacity = '0';
+    setTimeout(() => {
+      row.remove();
+      const remaining = document.querySelectorAll('[id^="dispute-row-"]').length;
+      const badge = document.getElementById('disputes-badge');
+      const navBadge = document.getElementById('nav-disputes-badge');
+      if (remaining === 0) {
+        if (badge) badge.style.display = 'none';
+        if (navBadge) navBadge.style.display = 'none';
+        document.getElementById('disputes-section').innerHTML = '<div class="empty"><div class="ei">🎉</div><p>No open disputes.</p></div>';
+      } else {
+        if (badge) badge.textContent = remaining;
+        if (navBadge) navBadge.textContent = remaining;
+      }
+    }, 320);
+    toast(`Dispute resolved: ${outcome.replace(/_/g,' ')}`, 'green');
+  } catch (e) {
+    btns.forEach(b => b.disabled = false);
+    btn.textContent = {refund_customer:'Refund',pay_fixer:'Pay Fixer',split:'Split',dismissed:'Dismiss'}[outcome]||outcome;
+    toast('Failed: ' + e.message, 'red');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PAYOUTS QUEUE
+// ─────────────────────────────────────────────────────────────────
+async function loadPayoutsQueue() {
+  try {
+    const rows = await queryView('payouts', 'status=eq.released&order=released_at.asc&select=id,gross_amount,commission_amt,net_amount,status,released_at,payment_method,notes,fixer_id,booking_id');
+    let fixerMap = {};
+    if (rows?.length) {
+      const ids = [...new Set(rows.map(r=>r.fixer_id).filter(Boolean))].join(',');
+      if (ids) {
+        try { const fixers = await queryView('fixers', `id=in.(${ids})&select=id,full_name,bank_name,branch_code`); fixers.forEach(f => fixerMap[f.id] = f); } catch (_) {}
+      }
+    }
+    renderPayoutsQueue(rows, fixerMap);
+  } catch (e) {
+    document.getElementById('payouts-section').innerHTML = `<div class="loader">Could not load payouts: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderPayoutsQueue(rows, fixerMap = {}) {
+  const badge = document.getElementById('payouts-badge');
+  const navBadge = document.getElementById('nav-payouts-badge');
+  if (!rows?.length) {
+    if (badge) badge.style.display = 'none';
+    if (navBadge) navBadge.style.display = 'none';
+    document.getElementById('payouts-section').innerHTML = '<div class="loader">No released payouts awaiting payment.</div>';
+    return;
+  }
+  if (badge) { badge.style.display='inline'; badge.textContent=rows.length; }
+  if (navBadge) { navBadge.style.display='inline'; navBadge.textContent=rows.length; }
+  const totalNet = rows.reduce((a,r) => a+Number(r.net_amount||0), 0);
+  document.getElementById('payouts-section').innerHTML = `
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px">
+      <span style="font-size:12px;color:var(--dim)">${rows.length} payout${rows.length!==1?'s':''} ready</span>
+      <span style="font-size:16px;font-weight:800;color:var(--green);font-family:'Syne',sans-serif">R ${totalNet.toFixed(2)}</span>
+      <button class="btn-approve" onclick="markAllPaid()" style="margin-left:auto">✓ Mark All Paid</button>
+      <button class="btn-sm" onclick="exportPayoutsCSV()">⬇ Export</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Fixer</th><th>Bank · Branch</th><th>Acct #</th><th>Gross</th><th>Commission</th><th>Net Payout</th><th>Released</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(p => {
+          const f = fixerMap[p.fixer_id] || {};
+          return `<tr id="payout-row-${p.id}">
+            <td><strong>${esc(f.full_name||'—')}</strong></td>
+            <td style="font-size:12px;color:var(--dim)">${esc(f.bank_name||'—')}${f.branch_code?` · <span class="mono">${esc(f.branch_code)}</span>`:''}</td>
+            <td><span style="font-size:11px;color:var(--dim);font-style:italic">encrypted</span></td>
+            <td>R ${Number(p.gross_amount||0).toFixed(2)}</td>
+            <td style="color:var(--yellow)">−R ${Number(p.commission_amt||0).toFixed(2)}</td>
+            <td style="font-weight:700;color:var(--green)">R ${Number(p.net_amount||0).toFixed(2)}</td>
+            <td style="white-space:nowrap;font-size:12px;color:var(--dim)">${p.released_at?new Date(p.released_at).toLocaleDateString('en-ZA'):'—'}</td>
+            <td><button class="btn-approve" onclick="markPayoutPaid('${p.id}',this)">Mark Paid</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function markPayoutPaid(payoutId, btn) {
+  const row  = document.getElementById(`payout-row-${payoutId}`);
+  const btns = row.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+  if (btn) btn.textContent = 'Saving…';
+  try {
+    await patchRow('payouts', payoutId, { status: 'paid', paid_at: new Date().toISOString() });
+    row.style.transition = 'opacity .3s'; row.style.opacity = '0';
+    setTimeout(() => {
+      row.remove();
+      const remaining = document.querySelectorAll('[id^="payout-row-"]').length;
+      const badge = document.getElementById('payouts-badge');
+      const navBadge = document.getElementById('nav-payouts-badge');
+      if (remaining === 0) {
+        if (badge) badge.style.display='none';
+        if (navBadge) navBadge.style.display='none';
+        document.getElementById('payouts-section').innerHTML = '<div class="loader">No released payouts awaiting payment.</div>';
+      } else {
+        if (badge) badge.textContent=remaining;
+        if (navBadge) navBadge.textContent=remaining;
+      }
+    }, 320);
+    toast('Payout marked as paid', 'green');
+  } catch (e) {
+    btns.forEach(b => b.disabled = false);
+    if (btn) btn.textContent = 'Mark Paid';
+    toast('Failed: ' + e.message, 'red');
+  }
+}
+
+async function markAllPaid() {
+  const rows = document.querySelectorAll('[id^="payout-row-"]');
+  if (!rows.length) return;
+  requireConfirm('Mark All Paid', `Mark all ${rows.length} payouts as paid? This cannot be undone.`, `Mark ${rows.length} Paid`, '', async () => {
+    const ids = [...rows].map(r => r.id.replace('payout-row-',''));
+    for (const id of ids) {
+      const btn = document.querySelector(`#payout-row-${id} button`);
+      await markPayoutPaid(id, btn);
+      await new Promise(r => setTimeout(r, 80));
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PENDING APPLICATIONS
+// ─────────────────────────────────────────────────────────────────
+async function loadPending() {
+  try {
+    const rows = await queryView('fixers', 'status=eq.pending&order=created_at.asc&select=id,full_name,business_name,city,phone,category,service_mode,id_document_path,police_clearance_path,created_at,is_verified,police_cleared');
+    renderPending(rows);
+  } catch (e) {
+    document.getElementById('pending-section').innerHTML = `<div class="loader">Could not load applications: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderPending(rows) {
+  const badge = document.getElementById('pending-badge');
+  const navBadge = document.getElementById('nav-pending-badge');
+  if (!rows?.length) {
+    if (badge) badge.style.display='none';
+    if (navBadge) navBadge.style.display='none';
+    document.getElementById('pending-section').innerHTML = '<div class="empty"><div class="ei">📭</div><p>No pending applications.</p></div>';
+    return;
+  }
+  if (badge) { badge.style.display='inline'; badge.textContent=rows.length; }
+  if (navBadge) { navBadge.style.display='inline'; navBadge.textContent=rows.length; }
+  document.getElementById('pending-section').innerHTML = `
+    <table>
+      <thead><tr>
+        <th><input type="checkbox" onchange="toggleAllPending(this)"></th>
+        <th>Name</th><th>Mode</th><th>City</th><th>Phone</th><th>Category</th>
+        <th>ID Doc</th><th>Police Clearance</th><th>Applied</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(f => `
+          <tr id="row-${f.id}">
+            <td><input type="checkbox" class="pending-cb" data-id="${f.id}" onchange="updateBulkBar()"></td>
+            <td>
+              <strong style="cursor:pointer;color:var(--accent2)" onclick="openFixerProfile('${f.id}')">${esc(f.full_name||f.business_name||'—')}</strong>
+              ${f.business_name&&f.full_name?`<div style="color:var(--dim);font-size:11px">${esc(f.business_name)}</div>`:''}
+              ${f.is_verified?`<span class="result-tag tag-green" style="margin-top:3px;display:inline-block;font-size:10px">✓ verified</span>`:''}
+            </td>
+            <td><span class="result-tag tag-blue">${esc(f.service_mode||'—')}</span></td>
+            <td>${esc(f.city||'—')}</td>
+            <td class="mono" style="font-size:12px">${esc(f.phone||'—')}</td>
+            <td>${esc(f.category||'—')}</td>
+            <td>${f.id_document_path?`<a href="${esc(f.id_document_path)}" target="_blank" style="color:var(--blue);font-size:12px">📄 View</a>`:'<span style="color:var(--dim)">—</span>'}</td>
+            <td>
+              ${f.police_clearance_path?`<a href="${esc(f.police_clearance_path)}" target="_blank" style="color:var(--blue);font-size:12px">📄 View</a>`:'<span style="color:var(--dim)">—</span>'}
+              ${f.police_cleared?` <span class="result-tag tag-green" style="font-size:10px">✓ cleared</span>`:f.police_clearance_path?` <span class="result-tag tag-yellow" style="font-size:10px">⏳ pending</span>`:'<span class="result-tag" style="font-size:10px;background:rgba(90,90,120,.15);color:var(--dim)">missing</span>'}
+            </td>
+            <td style="white-space:nowrap;color:var(--dim);font-size:12px">${new Date(f.created_at).toLocaleDateString('en-ZA')}</td>
+            <td style="white-space:nowrap">
+              <div style="display:flex;gap:6px">
+                <button class="btn-approve" onclick="updateFixerStatus('${f.id}','approved',this)">Approve</button>
+                <button class="btn-reject"  onclick="updateFixerStatus('${f.id}','rejected',this)">Reject</button>
+                <button class="btn-sm" onclick="openFixerProfile('${f.id}')">Profile</button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function toggleAllPending(cb) {
+  document.querySelectorAll('.pending-cb').forEach(c => c.checked = cb.checked);
+  updateBulkBar();
+}
+
+async function bulkApproveAllPending() {
+  const rows = document.querySelectorAll('#pending-section tbody tr');
+  if (!rows.length) return;
+  requireConfirm('Approve All Applications', `Approve all ${rows.length} pending applications?`, 'Approve All', 'green', async () => {
+    const ids = [...rows].map(r => r.id.replace('row-',''));
+    for (const id of ids) await updateFixerStatus(id, 'approved', null).catch(()=>{});
+  });
+}
+
+async function updateFixerStatus(fixerId, newStatus, btn) {
+  // Disable buttons immediately for visual feedback
+  const row = document.getElementById(`row-${fixerId}`);
+  if (row) { const btns = row.querySelectorAll('button'); btns.forEach(b => b.disabled = true); }
+  if (btn) btn.textContent = newStatus === 'approved' ? 'Approving…' : 'Rejecting…';
+  try {
+    const data = { status: newStatus };
+    // Set reviewed timestamp when approving/rejecting
+    if (newStatus === 'approved' || newStatus === 'rejected') {
+      data.updated_at = new Date().toISOString();
+    }
+    await patchRow('fixers', fixerId, data);
+    if (row) {
+      row.style.transition = 'opacity .3s'; row.style.opacity = '0';
+      setTimeout(() => {
+        row.remove();
+        const remaining = document.querySelector('#pending-section tbody')?.querySelectorAll('tr').length || 0;
+        const badge = document.getElementById('pending-badge');
+        const navBadge = document.getElementById('nav-pending-badge');
+        if (remaining === 0) {
+          if (badge) badge.style.display='none';
+          if (navBadge) navBadge.style.display='none';
+          document.getElementById('pending-section').innerHTML = '<div class="empty"><div class="ei">📭</div><p>No pending applications.</p></div>';
+        } else {
+          if (badge) badge.textContent=remaining;
+          if (navBadge) navBadge.textContent=remaining;
+        }
+      }, 320);
+    }
+    toast(`Fixer ${newStatus}`, newStatus==='approved'?'green':'red');
+  } catch (e) {
+    if (row) { row.querySelectorAll('button').forEach(b => b.disabled = false); }
+    if (btn) btn.textContent = newStatus === 'approved' ? 'Approve' : 'Reject';
+    toast('Failed to update: ' + e.message, 'red');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FIXER PERFORMANCE TABLE
+// ─────────────────────────────────────────────────────────────────
+let _fixersData = [];
+
+async function loadFixers(days) {
+  try {
+    let rows;
+    try { rows = await callRpc('get_fixer_performance', { p_days: days }); } catch (rpcErr) {
+      rows = await queryView('fixers', `status=eq.approved&order=total_completed.desc.nullslast&select=id,full_name,city,fixer_status,status,total_completed,total_cancelled,completion_rate,rating,avg_response_time,total_earnings,last_online_at,is_flagged,flag_reason&limit=200`);
+      rows = rows.map(f => ({ ...f, fixer_id: f.id, bookings_completed: f.total_completed, cancellations: f.total_cancelled, completion_pct: f.completion_rate != null ? Math.round(f.completion_rate) : null, avg_rating: f.rating, median_response_s: f.avg_response_time, days_since_online: f.last_online_at ? Math.floor((Date.now() - new Date(f.last_online_at)) / 86400000) : null }));
+    }
+    _fixersData = rows || [];
+    renderFixers(rows);
+    renderLeaderboard(rows);
+  } catch (err) {
+    document.getElementById('fixer-section').innerHTML = `<div class="loader">Could not load fixer table: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderFixers(rows) {
+  if (!rows?.length) { document.getElementById('fixer-section').innerHTML = '<div class="loader">No approved fixers yet.</div>'; return; }
+  document.getElementById('fixer-section').innerHTML = `
+    <table id="fixers-table">
+      <thead><tr>
+        <th><input type="checkbox" onchange="toggleAllFixers(this)"></th>
+        <th onclick="sortFixers('full_name')">Fixer ↕</th>
+        <th>City</th>
+        <th>Status</th>
+        <th onclick="sortFixers('bookings_completed')">Completed ↕</th>
+        <th onclick="sortFixers('cancellations')">Cancelled ↕</th>
+        <th onclick="sortFixers('completion_pct')">Completion % ↕</th>
+        <th onclick="sortFixers('avg_rating')">Rating ↕</th>
+        <th>Response</th>
+        <th onclick="sortFixers('total_earnings')">Earnings ↕</th>
+        <th>Last Seen</th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(f => `
+          <tr id="fixer-perf-${f.fixer_id||f.id||''}" style="${f.is_flagged?'background:rgba(240,79,79,.04)':''}">
+            <td><input type="checkbox" class="fixer-cb" data-id="${f.fixer_id||f.id}" data-status="${f.status||'approved'}" onchange="updateBulkBar()"></td>
+            <td>
+              <strong style="cursor:pointer;color:var(--accent2)" onclick="openFixerProfile('${f.fixer_id||f.id}')">${esc(f.full_name||'—')}</strong>
+              ${f.is_flagged?`<div style="font-size:10px;color:var(--red);margin-top:2px">🚩 ${esc(f.flag_reason||'flagged')}</div>`:''}
+            </td>
+            <td>${esc(f.city||'—')}</td>
+            <td class="status-${f.fixer_status||'offline'}">${f.fixer_status||'offline'}</td>
+            <td>${f.bookings_completed??0}</td>
+            <td>${f.cancellations??0}</td>
+            <td class="${pctClass(f.completion_pct,80,90)}">${f.completion_pct!=null?f.completion_pct+'%':'—'}</td>
+            <td>${f.avg_rating?'⭐ '+f.avg_rating:'—'}</td>
+            <td class="mono" style="font-size:11px">${f.median_response_s?fmtSeconds(f.median_response_s):'—'}</td>
+            <td>R${(f.total_earnings||0).toFixed(2)}</td>
+            <td style="color:var(--dim);font-size:12px">${f.days_since_online!=null?(f.days_since_online===0?'Today':f.days_since_online+'d ago'):'—'}</td>
+            <td>
+              <div style="display:flex;gap:5px">
+                <button class="btn-sm" onclick="openFixerProfile('${f.fixer_id||f.id}')">Profile</button>
+                <button class="btn-suspend" onclick="openFixerActions('${f.fixer_id||f.id}','${esc(f.full_name||'—')}','${f.status||'approved'}')">Actions</button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function toggleAllFixers(cb) {
+  document.querySelectorAll('.fixer-cb').forEach(c => c.checked = cb.checked);
+  updateBulkBar();
+}
+
+let _sortCol = null, _sortAsc = true;
+function sortFixers(col) {
+  if (_sortCol === col) _sortAsc = !_sortAsc; else { _sortCol = col; _sortAsc = false; }
+  const sorted = [..._fixersData].sort((a,b) => {
+    const va = a[col]??0, vb = b[col]??0;
+    if (typeof va === 'string') return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return _sortAsc ? va - vb : vb - va;
+  });
+  renderFixers(sorted);
+}
+
+function filterFixersTable() {
+  const status = document.getElementById('fixer-status-filter').value;
+  const filtered = status ? _fixersData.filter(f => (f.status||'approved') === status) : _fixersData;
+  renderFixers(filtered);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FIXER PROFILE — Full Detail View
+// ─────────────────────────────────────────────────────────────────
+let _currentFixer = null;
+
+async function openFixerProfile(fixerId) {
+  showPage('fixer-profile', null);
+  document.getElementById('fixer-profile-header-wrap').innerHTML = '<div class="loader">Loading profile…</div>';
+  document.querySelectorAll('.profile-tab-content').forEach(t => { t.innerHTML = '<div class="loader">Loading…</div>'; t.classList.remove('active'); });
+  document.getElementById('ptab-overview').classList.add('active');
+  document.querySelectorAll('.profile-tab').forEach((t,i) => { t.classList.toggle('active', i===0); });
+
+  try {
+    const [fixers, bookings, payouts] = await Promise.allSettled([
+      queryView('fixers', `id=eq.${fixerId}&select=*&limit=1`),
+      queryView('bookings', `fixer_id=eq.${fixerId}&order=created_at.desc&select=id,status,category,city,total_amount,created_at,cancellation_reason,customer_id&limit=50`),
+      queryView('payouts', `fixer_id=eq.${fixerId}&order=released_at.desc&select=*&limit=50`),
+    ]);
+
+    const f = fixers.status==='fulfilled' ? fixers.value?.[0] : null;
+    if (!f) { document.getElementById('fixer-profile-header-wrap').innerHTML = '<div class="loader">Fixer not found.</div>'; return; }
+    _currentFixer = f;
+
+    const bks = bookings.status==='fulfilled' ? bookings.value : [];
+    const pts = payouts.status==='fulfilled'  ? payouts.value  : [];
+
+    renderFixerProfileHeader(f);
+    renderProfileOverview(f, bks);
+    renderProfileApplication(f);
+    renderProfileUploads(f);
+    renderProfileJobs(f, bks);
+    renderProfileEarnings(f, pts);
+    renderProfilePerformance(f, bks);
+    renderProfileNotes(f);
+    renderProfileActivity(f, bks);
+
+  } catch (e) {
+    document.getElementById('fixer-profile-header-wrap').innerHTML = `<div class="loader">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderFixerProfileHeader(f) {
+  const initial = (f.full_name||'?').charAt(0).toUpperCase();
+  const statusClass = f.status==='approved'?'tag-green':f.status==='pending'?'tag-yellow':'tag-red';
+  const completedJobs = f.total_completed || 0;
+  const completionRate = f.completion_rate ? Math.round(f.completion_rate)+'%' : '—';
+  const rating = f.rating ? '⭐ '+f.rating : '—';
+
+  document.getElementById('fixer-profile-header-wrap').innerHTML = `
+    <div class="fixer-profile-header">
+      <div class="fixer-avatar">${initial}</div>
+      <div class="fixer-profile-info">
+        <h2>${esc(f.full_name||f.business_name||'Unknown')}</h2>
+        <div class="fixer-profile-meta">
+          <span class="fixer-meta-item">📍 ${esc(f.city||'—')}</span>
+          <span class="fixer-meta-item">📱 ${esc(f.phone||'—')}</span>
+          <span class="fixer-meta-item">✉️ ${esc(f.email||'—')}</span>
+          <span class="fixer-meta-item">🔧 ${esc(f.category||'—')}</span>
+          <span class="fixer-meta-item">📡 ${esc(f.service_mode||'—')}</span>
+          <span class="result-tag ${statusClass}" style="font-size:11px">${esc(f.status||'unknown')}</span>
+          ${f.is_flagged?`<span class="result-tag tag-red" style="font-size:11px">🚩 Flagged</span>`:''}
+        </div>
+        <div class="fixer-profile-meta" style="margin-bottom:0">
+          <span class="fixer-meta-item">📅 Joined: ${f.created_at?new Date(f.created_at).toLocaleDateString('en-ZA'):'—'}</span>
+          <span class="fixer-meta-item">🕐 Last active: ${f.last_online_at?new Date(f.last_online_at).toLocaleDateString('en-ZA'):'—'}</span>
+        </div>
+      </div>
+      <div class="fixer-profile-stats">
+        <div class="fixer-stat"><div class="sv">${completedJobs}</div><div class="sl">Jobs Done</div></div>
+        <div class="fixer-stat"><div class="sv">${completionRate}</div><div class="sl">Completion</div></div>
+        <div class="fixer-stat"><div class="sv">${rating}</div><div class="sl">Rating</div></div>
+        <div class="fixer-stat"><div class="sv">R${(f.total_earnings||0).toFixed(0)}</div><div class="sl">Earnings</div></div>
+      </div>
+      <div class="fixer-profile-actions">
+        ${f.status!=='suspended'
+          ? `<button class="btn-suspend" onclick="confirmFixerAction('${f.id}','${esc(f.full_name||'')}','suspended')">⏸ Suspend</button>`
+          : `<button class="btn-approve" onclick="confirmFixerAction('${f.id}','${esc(f.full_name||'')}','approved')">✓ Reinstate</button>`}
+        <button class="btn-reject" onclick="confirmFixerAction('${f.id}','${esc(f.full_name||'')}','rejected')">🗑 Remove</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderProfileOverview(f, bks) {
+  const completed  = bks.filter(b => b.status==='completed').length;
+  const cancelled  = bks.filter(b => b.status==='cancelled').length;
+  const inProgress = bks.filter(b => b.status==='in_progress').length;
+  const compRate   = bks.length ? Math.round((completed/bks.length)*100) : 0;
+
+  document.getElementById('ptab-overview').innerHTML = `
+    <div class="metrics-grid" style="margin-bottom:20px">
+      <div class="metric"><div class="label">Jobs Assigned</div><div class="value">${bks.length}</div></div>
+      <div class="metric ok"><div class="label">Jobs Completed</div><div class="value pct-good">${completed}</div></div>
+      <div class="metric"><div class="label">Jobs Cancelled</div><div class="value" style="color:var(--yellow)">${cancelled}</div></div>
+      <div class="metric"><div class="label">In Progress</div><div class="value" style="color:var(--blue)">${inProgress}</div></div>
+      <div class="metric ${compRate>=80?'ok':'alert'}"><div class="label">Completion Rate</div><div class="value ${pctClass(compRate,80,90)}">${compRate}%</div><div class="sub">Target ≥ 80%</div></div>
+      <div class="metric"><div class="label">Avg Rating</div><div class="value">${f.rating?'⭐ '+f.rating:'—'}</div></div>
+      <div class="metric"><div class="label">Total Earnings</div><div class="value" style="font-size:20px;color:var(--green)">R${(f.total_earnings||0).toFixed(0)}</div></div>
+      <div class="metric"><div class="label">Avg Response</div><div class="value" style="font-size:20px">${f.avg_response_time?fmtSeconds(f.avg_response_time):'—'}</div></div>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="section-header"><h2>Police Clearance</h2></div>
+        <div class="clearance-card">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px">
+            <div>
+              <div class="field-label" style="margin-bottom:4px">Status</div>
+              ${f.police_cleared
+                ? `<span class="clearance-badge clearance-verified">✓ Verified</span>`
+                : f.police_clearance_path
+                ? `<span class="clearance-badge clearance-pending">⏳ Pending Review</span>`
+                : `<span class="clearance-badge clearance-missing">⚠ Not Submitted</span>`}
+            </div>
+            ${f.police_clearance_path?`<a href="${esc(f.police_clearance_path)}" target="_blank" class="btn-action" style="font-size:11px;padding:5px 10px;border-radius:6px;text-decoration:none">📄 View Document</a>`:''}
+          </div>
+          <div class="detail-grid" style="grid-template-columns:1fr 1fr">
+            <div class="detail-field"><label>Clearance #</label><span class="mono">${esc(f.police_clearance_number||'—')}</span></div>
+            <div class="detail-field"><label>Expiry Date</label>
+              <span style="${f.police_clearance_expiry && new Date(f.police_clearance_expiry) < new Date() ? 'color:var(--red)' : ''}">${f.police_clearance_expiry?new Date(f.police_clearance_expiry).toLocaleDateString('en-ZA'):'—'}${f.police_clearance_expiry && new Date(f.police_clearance_expiry) < new Date() ? ' ⚠ EXPIRED' : ''}</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            ${!f.police_cleared?`<button class="btn-approve" style="font-size:11px" onclick="markPoliceClearance('${f.id}',true)">✓ Mark Cleared</button>`:''}
+            ${f.police_cleared?`<button class="btn-reject" style="font-size:11px" onclick="markPoliceClearance('${f.id}',false)">✗ Revoke Clearance</button>`:''}
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="section-header"><h2>Verification Status</h2></div>
+        <div class="clearance-card">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="detail-field"><label>Identity Verified</label><span class="result-tag ${f.is_verified?'tag-green':'tag-red'}">${f.is_verified?'✓ Yes':'✗ No'}</span></div>
+            <div class="detail-field"><label>Police Cleared</label><span class="result-tag ${f.police_cleared?'tag-green':'tag-yellow'}">${f.police_cleared?'✓ Yes':'⏳ Pending'}</span></div>
+            <div class="detail-field"><label>ID Document</label><span class="result-tag ${f.id_document_path?'tag-blue':'tag-red'}">${f.id_document_path?'✓ Uploaded':'✗ Missing'}</span></div>
+            <div class="detail-field"><label>Account Status</label><span class="result-tag ${f.status==='approved'?'tag-green':f.status==='pending'?'tag-yellow':'tag-red'}">${esc(f.status||'—')}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderProfileApplication(f) {
+  document.getElementById('ptab-application').innerHTML = `
+    <div class="two-col">
+      <div>
+        <div class="section-header"><h2>Personal Information</h2></div>
+        <div class="table-wrap" style="padding:18px 20px;margin-bottom:16px">
+          <div class="detail-grid">
+            <div class="detail-field"><label>Full Name</label><span>${esc(f.full_name||'—')}</span></div>
+            <div class="detail-field"><label>Business Name</label><span>${esc(f.business_name||'—')}</span></div>
+            <div class="detail-field"><label>ID Number</label><span class="mono">${esc(f.id_number||'—')}</span></div>
+            <div class="detail-field"><label>Date of Birth</label><span>${f.date_of_birth?new Date(f.date_of_birth).toLocaleDateString('en-ZA'):'—'}</span></div>
+            <div class="detail-field"><label>Gender</label><span>${esc(f.gender||'—')}</span></div>
+            <div class="detail-field"><label>Nationality</label><span>${esc(f.nationality||'—')}</span></div>
+          </div>
+        </div>
+
+        <div class="section-header"><h2>Contact Information</h2></div>
+        <div class="table-wrap" style="padding:18px 20px;margin-bottom:16px">
+          <div class="detail-grid">
+            <div class="detail-field"><label>Phone</label><span class="mono">${esc(f.phone||'—')}</span></div>
+            <div class="detail-field"><label>Email</label><span>${esc(f.email||'—')}</span></div>
+            <div class="detail-field" style="grid-column:1/-1"><label>Address</label><span>${esc(f.address||'—')}</span></div>
+            <div class="detail-field"><label>City</label><span>${esc(f.city||'—')}</span></div>
+            <div class="detail-field"><label>Province</label><span>${esc(f.province||'—')}</span></div>
+            <div class="detail-field"><label>Postal Code</label><span>${esc(f.postal_code||'—')}</span></div>
+            <div class="detail-field"><label>Emergency Contact</label><span>${esc(f.emergency_contact||'—')}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-header"><h2>Service Information</h2></div>
+        <div class="table-wrap" style="padding:18px 20px;margin-bottom:16px">
+          <div class="detail-grid">
+            <div class="detail-field"><label>Category</label><span>${esc(f.category||'—')}</span></div>
+            <div class="detail-field"><label>Service Mode</label><span>${esc(f.service_mode||'—')}</span></div>
+            <div class="detail-field"><label>Availability</label><span>${esc(f.availability||'—')}</span></div>
+            <div class="detail-field"><label>Vehicle/Equipment</label><span>${esc(f.vehicle_type||f.equipment||'—')}</span></div>
+            <div class="detail-field" style="grid-column:1/-1"><label>Description / Experience</label><span style="line-height:1.6">${esc(f.description||f.experience||'—')}</span></div>
+            <div class="detail-field" style="grid-column:1/-1"><label>References</label><span>${esc(f.references||'—')}</span></div>
+          </div>
+        </div>
+
+        <div class="section-header"><h2>Bank Details</h2></div>
+        <div class="table-wrap" style="padding:18px 20px;margin-bottom:16px">
+          <div class="detail-grid">
+            <div class="detail-field"><label>Bank Name</label><span>${esc(f.bank_name||'—')}</span></div>
+            <div class="detail-field"><label>Branch Code</label><span class="mono">${esc(f.branch_code||'—')}</span></div>
+            <div class="detail-field"><label>Account Number</label><span style="font-style:italic;color:var(--dim)">encrypted</span></div>
+            <div class="detail-field"><label>Account Type</label><span>${esc(f.account_type||'—')}</span></div>
+          </div>
+        </div>
+
+        <div class="section-header"><h2>Application Timeline</h2></div>
+        <div class="table-wrap" style="padding:18px 20px">
+          <div class="timeline">
+            <div class="timeline-item">
+              <div class="timeline-dot" style="background:rgba(77,158,255,.15);border-color:var(--blue)">📝</div>
+              <div class="timeline-content">
+                <div class="timeline-title">Application submitted</div>
+                <div class="timeline-meta">${f.created_at?new Date(f.created_at).toLocaleString('en-ZA'):'—'}</div>
+              </div>
+            </div>
+            ${f.reviewed_at?`
+            <div class="timeline-item">
+              <div class="timeline-dot" style="background:rgba(240,180,41,.15);border-color:var(--yellow)">👁</div>
+              <div class="timeline-content">
+                <div class="timeline-title">Under review</div>
+                <div class="timeline-meta">${new Date(f.reviewed_at).toLocaleString('en-ZA')} · ${esc(f.reviewed_by||'Admin')}</div>
+              </div>
+            </div>`:''}
+            ${f.status!=='pending'?`
+            <div class="timeline-item">
+              <div class="timeline-dot" style="background:${f.status==='approved'?'rgba(34,208,114,.15)':'rgba(240,79,79,.15)'};border-color:${f.status==='approved'?'var(--green)':'var(--red)'}">
+                ${f.status==='approved'?'✅':'❌'}
+              </div>
+              <div class="timeline-content">
+                <div class="timeline-title">${f.status==='approved'?'Approved':'Rejected/Removed'}</div>
+                <div class="timeline-meta">${f.updated_at?new Date(f.updated_at).toLocaleString('en-ZA'):'—'}</div>
+              </div>
+            </div>`:''}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderProfileUploads(f) {
+  const docs = [
+    { type: 'ID Document', path: f.id_document_path, status: f.is_verified?'verified':'pending', uploaded: f.id_uploaded_at },
+    { type: 'Police Clearance', path: f.police_clearance_path, status: f.police_cleared?'verified':f.police_clearance_path?'pending':'missing', uploaded: f.police_clearance_uploaded_at, expiry: f.police_clearance_expiry },
+    { type: 'Profile Photo', path: f.profile_image_url, status: f.profile_image_url?'verified':'missing' },
+    { type: 'Proof of Address', path: f.proof_of_address_path, status: f.proof_of_address_path?'uploaded':'missing' },
+    { type: 'Qualification / Cert', path: f.certification_path, status: f.certification_path?'uploaded':'missing' },
+  ];
+  const statusMap = { verified:'tag-green', pending:'tag-yellow', uploaded:'tag-blue', missing:'tag-red' };
+
+  document.getElementById('ptab-uploads').innerHTML = `
+    <div class="section-header"><h2>Uploaded Documents</h2></div>
+    <div class="doc-grid">
+      ${docs.map(d => `
+        <div class="doc-card">
+          <div class="doc-card-header">
+            <div class="doc-type">${esc(d.type)}</div>
+            <span class="result-tag ${statusMap[d.status]||'tag-blue'}">${d.status}</span>
+          </div>
+          <div class="doc-name">${d.path ? d.path.split('/').pop() : 'Not uploaded'}</div>
+          <div class="doc-meta">
+            ${d.uploaded?`Uploaded: ${new Date(d.uploaded).toLocaleDateString('en-ZA')}`:''}
+            ${d.expiry?`<br>Expires: <span style="color:${new Date(d.expiry)<new Date()?'var(--red)':'var(--text)'}">${new Date(d.expiry).toLocaleDateString('en-ZA')}</span>`:''}
+          </div>
+          <div class="doc-actions">
+            ${d.path?`<a href="${esc(d.path)}" target="_blank" class="btn-action" style="font-size:10px;padding:4px 8px;text-decoration:none">👁 Preview</a>
+            <a href="${esc(d.path)}" download class="btn-sm" style="font-size:10px;padding:4px 8px;text-decoration:none">⬇ Download</a>`:'<span style="font-size:11px;color:var(--dim)">Awaiting upload</span>'}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderProfileJobs(f, bks) {
+  document.getElementById('ptab-jobs').innerHTML = `
+    <div class="section-header">
+      <h2>Job / Booking History</h2>
+      <span style="font-size:11px;color:var(--dim)">${bks.length} jobs loaded</span>
+      <div class="section-header-actions">
+        <select class="period-select" id="jobs-status-filter" onchange="filterProfileJobs()">
+          <option value="">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="in_progress">In Progress</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrap" id="profile-jobs-table">
+      ${bks.length ? `
+      <table>
+        <thead><tr>
+          <th>Booking ID</th><th>Status</th><th>Category</th><th>City</th><th>Amount</th><th>Cancellation Reason</th><th>Date</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${bks.map(b => `<tr data-status="${b.status}">
+            <td class="mono" style="font-size:11px">${b.id?b.id.slice(0,8)+'…':'—'}</td>
+            <td><span class="result-tag ${statusTagClass(b.status)}">${esc(b.status||'—')}</span></td>
+            <td>${esc(b.category||'—')}</td>
+            <td>${esc(b.city||'—')}</td>
+            <td style="font-weight:700">R${(b.total_amount||0).toFixed(2)}</td>
+            <td style="font-size:12px;color:var(--dim)">${esc(b.cancellation_reason||'—')}</td>
+            <td style="color:var(--dim);font-size:12px">${b.created_at?new Date(b.created_at).toLocaleDateString('en-ZA'):'—'}</td>
+            <td><button class="btn-action" style="font-size:10px" onclick="openBookingDetail('${b.id}')">Detail</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : '<div class="empty"><div class="ei">📭</div><p>No jobs found for this fixer.</p></div>'}
+    </div>
+  `;
+}
+
+function filterProfileJobs() {
+  const status = document.getElementById('jobs-status-filter')?.value;
+  document.querySelectorAll('#profile-jobs-table tbody tr').forEach(tr => {
+    tr.style.display = (!status || tr.dataset.status === status) ? '' : 'none';
+  });
+}
+
+function renderProfileEarnings(f, pts) {
+  const totalGross   = pts.reduce((a,p) => a+Number(p.gross_amount||0), 0);
+  const totalNet     = pts.reduce((a,p) => a+Number(p.net_amount||0), 0);
+  const totalDeducted = pts.reduce((a,p) => a+Number(p.commission_amt||0), 0);
+  const pendingAmt   = pts.filter(p=>p.status==='released').reduce((a,p)=>a+Number(p.net_amount||0),0);
+  const paidAmt      = pts.filter(p=>p.status==='paid').reduce((a,p)=>a+Number(p.net_amount||0),0);
+
+  document.getElementById('ptab-earnings').innerHTML = `
+    <div class="metrics-grid" style="margin-bottom:20px">
+      <div class="metric"><div class="label">Total Gross</div><div class="value" style="font-size:20px">R${totalGross.toFixed(0)}</div></div>
+      <div class="metric ok"><div class="label">Total Net Paid</div><div class="value pct-good" style="font-size:20px">R${paidAmt.toFixed(0)}</div></div>
+      <div class="metric"><div class="label">Pending Payout</div><div class="value" style="font-size:20px;color:var(--yellow)">R${pendingAmt.toFixed(0)}</div></div>
+      <div class="metric"><div class="label">Platform Fees</div><div class="value" style="font-size:20px;color:var(--dim)">R${totalDeducted.toFixed(0)}</div></div>
+    </div>
+    <div class="section-header"><h2>Payout History</h2>
+      <div class="section-header-actions"><button class="btn-sm" onclick="exportSinglePayoutCSV()">⬇ Export</button></div>
+    </div>
+    <div class="table-wrap">
+      ${pts.length ? `
+      <table>
+        <thead><tr><th>Payout ID</th><th>Gross</th><th>Commission</th><th>Net</th><th>Method</th><th>Status</th><th>Released</th><th>Notes</th></tr></thead>
+        <tbody>
+          ${pts.map(p => `<tr>
+            <td class="mono" style="font-size:11px">${p.id?p.id.slice(0,8)+'…':'—'}</td>
+            <td>R${Number(p.gross_amount||0).toFixed(2)}</td>
+            <td style="color:var(--yellow)">−R${Number(p.commission_amt||0).toFixed(2)}</td>
+            <td style="font-weight:700;color:var(--green)">R${Number(p.net_amount||0).toFixed(2)}</td>
+            <td>${esc(p.payment_method||'—')}</td>
+            <td><span class="result-tag ${p.status==='paid'?'tag-green':'tag-yellow'}">${esc(p.status||'—')}</span></td>
+            <td style="color:var(--dim);font-size:12px">${p.released_at?new Date(p.released_at).toLocaleDateString('en-ZA'):'—'}</td>
+            <td style="font-size:12px;color:var(--dim)">${esc(p.notes||'—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : '<div class="empty"><div class="ei">💸</div><p>No payout history.</p></div>'}
+    </div>
+  `;
+}
+
+function renderProfilePerformance(f, bks) {
+  const completed  = bks.filter(b=>b.status==='completed').length;
+  const cancelled  = bks.filter(b=>b.status==='cancelled').length;
+  const total      = bks.length || 1;
+  const compRate   = Math.round((completed/total)*100);
+  const cancelRate = Math.round((cancelled/total)*100);
+
+  // Monthly breakdown
+  const byMonth = {};
+  bks.forEach(b => {
+    const m = b.created_at ? new Date(b.created_at).toLocaleString('en-ZA',{year:'numeric',month:'short'}) : 'Unknown';
+    if (!byMonth[m]) byMonth[m] = { completed:0, cancelled:0, total:0 };
+    byMonth[m].total++;
+    if (b.status==='completed') byMonth[m].completed++;
+    if (b.status==='cancelled') byMonth[m].cancelled++;
+  });
+
+  document.getElementById('ptab-performance').innerHTML = `
+    <div class="metrics-grid" style="margin-bottom:20px">
+      <div class="metric ${compRate>=80?'ok':'alert'}"><div class="label">Completion Rate</div><div class="value ${pctClass(compRate,80,90)}">${compRate}%</div><div class="sub">Target ≥ 80%</div></div>
+      <div class="metric"><div class="label">Cancellation Rate</div><div class="value ${cancelRate>20?'pct-bad':cancelRate>10?'pct-warn':'pct-good'}">${cancelRate}%</div></div>
+      <div class="metric"><div class="label">Avg Rating</div><div class="value">${f.rating?'⭐ '+f.rating:'—'}</div><div class="sub">Customer reviews</div></div>
+      <div class="metric"><div class="label">Avg Response</div><div class="value" style="font-size:20px">${f.avg_response_time?fmtSeconds(f.avg_response_time):'—'}</div></div>
+      <div class="metric"><div class="label">On-time Rate</div><div class="value">${f.ontime_rate?Math.round(f.ontime_rate)+'%':'—'}</div></div>
+      <div class="metric"><div class="label">Platform Avg Comp.</div><div class="value pct-warn">80%</div><div class="sub">Comparison</div></div>
+    </div>
+
+    <div class="section-header"><h2>Monthly Performance</h2></div>
+    <div class="table-wrap" style="padding:20px">
+      ${Object.entries(byMonth).slice(0,12).map(([month, data]) => {
+        const pct = Math.round((data.completed / (data.total||1))*100);
+        return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+          <div style="width:90px;font-size:12px;color:var(--dim)">${month}</div>
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-bottom:3px">
+              <span>${data.completed}/${data.total} completed</span><span>${pct}%</span>
+            </div>
+            <div class="perf-bar"><div class="perf-bar-fill" style="width:${pct}%"></div></div>
+          </div>
+        </div>`;
+      }).join('') || '<div style="color:var(--dim);font-size:13px">No monthly data.</div>'}
+    </div>
+  `;
+}
+
+function renderProfileNotes(f) {
+  const _notes = JSON.parse(sessionStorage.getItem(`notes-${f.id}`) || '[]');
+  document.getElementById('ptab-notes').innerHTML = `
+    <div class="section-header"><h2>Internal Notes</h2></div>
+    <div class="notes-list" id="notes-list-${f.id}">
+      ${_notes.length ? _notes.map(n => `
+        <div class="note-item">
+          <div class="note-meta"><span>Admin · ${esc(n.author||'Admin')}</span><span>${esc(n.date||'')}</span></div>
+          <div class="note-body">${esc(n.body)}</div>
+        </div>
+      `).join('') : '<div style="color:var(--dim);font-size:13px;padding:8px 0">No notes yet.</div>'}
+    </div>
+    <div class="note-form">
+      <textarea id="note-input-${f.id}" placeholder="Add a private internal note… (not visible to fixer)"></textarea>
+      <button class="btn-sm" style="align-self:flex-end;padding:8px 14px;font-size:12px" onclick="addNote('${f.id}')">Add Note</button>
+    </div>
+  `;
+}
+
+function addNote(fixerId) {
+  const input = document.getElementById(`note-input-${fixerId}`);
+  const body  = input?.value?.trim();
+  if (!body) return;
+  const notes = JSON.parse(sessionStorage.getItem(`notes-${fixerId}`) || '[]');
+  notes.unshift({ body, author: 'Admin', date: new Date().toLocaleString('en-ZA') });
+  sessionStorage.setItem(`notes-${fixerId}`, JSON.stringify(notes));
+  input.value = '';
+  renderProfileNotes({ id: fixerId });
+  toast('Note added', 'green');
+}
+
+function renderProfileActivity(f, bks) {
+  const events = [];
+  if (f.created_at) events.push({ icon:'📝', title:'Fixer applied', date: f.created_at, color:'var(--blue)' });
+  if (f.status !== 'pending') events.push({ icon: f.status==='approved'?'✅':'❌', title: `Account ${f.status}`, date: f.updated_at||f.created_at, color: f.status==='approved'?'var(--green)':'var(--red)' });
+  bks.slice(0,15).forEach(b => {
+    events.push({ icon: b.status==='completed'?'✅':b.status==='cancelled'?'❌':'🔄', title:`Booking ${b.status}`, sub:`${esc(b.category||'')} · ${esc(b.city||'')} · R${(b.total_amount||0).toFixed(2)}`, date: b.created_at, color: b.status==='completed'?'var(--green)':b.status==='cancelled'?'var(--red)':'var(--blue)' });
+  });
+  events.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  document.getElementById('ptab-activity').innerHTML = `
+    <div class="section-header"><h2>Activity Log</h2></div>
+    <div class="table-wrap" style="padding:20px">
+      <div class="timeline">
+        ${events.map(e => `
+          <div class="timeline-item">
+            <div class="timeline-dot" style="border-color:${e.color};background:${e.color}20">${e.icon}</div>
+            <div class="timeline-content">
+              <div class="timeline-title">${e.title}</div>
+              ${e.sub?`<div class="timeline-meta">${e.sub}</div>`:''}
+              <div class="timeline-meta">${e.date?new Date(e.date).toLocaleString('en-ZA'):'—'}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function switchProfileTab(name, btn) {
+  document.querySelectorAll('.profile-tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`ptab-${name}`)?.classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+async function markPoliceClearance(fixerId, cleared) {
+  try {
+    await patchRow('fixers', fixerId, { police_cleared: cleared });
+    toast(`Police clearance ${cleared?'granted':'revoked'}`, cleared?'green':'yellow');
+    if (_currentFixer) openFixerProfile(fixerId);
+  } catch(e) { toast('Failed: '+e.message,'red'); }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FIXER ACTIONS MODAL
+// ─────────────────────────────────────────────────────────────────
+function openFixerActions(fixerId, fixerName, currentStatus) {
+  document.getElementById('fixer-modal-title').textContent = 'Fixer Actions';
+  document.getElementById('fixer-modal-name').textContent = fixerName;
+  document.getElementById('fixer-modal-actions').innerHTML = `
+    <button class="btn-action" style="padding:10px 14px;font-size:13px;text-align:left" onclick="closeModal('fixer-modal');openFixerProfile('${fixerId}')">
+      🔍 View full profile & bookings
+    </button>
+    ${currentStatus !== 'suspended'
+      ? `<button class="btn-suspend" style="padding:10px 14px;font-size:13px;text-align:left" onclick="closeModal('fixer-modal');confirmFixerAction('${fixerId}','${esc(fixerName)}','suspended')">⏸ Suspend fixer</button>`
+      : `<button class="btn-approve" style="padding:10px 14px;font-size:13px;text-align:left" onclick="closeModal('fixer-modal');confirmFixerAction('${fixerId}','${esc(fixerName)}','approved')">✓ Reinstate fixer</button>`}
+    <button class="btn-reject" style="padding:10px 14px;font-size:13px;text-align:left" onclick="closeModal('fixer-modal');confirmFixerAction('${fixerId}','${esc(fixerName)}','rejected')">🗑 Remove from platform</button>
+  `;
+  openModal('fixer-modal');
+}
+
+function confirmFixerAction(fixerId, fixerName, newStatus) {
+  const labels = { suspended:'Suspend', approved:'Reinstate', rejected:'Remove' };
+  const bodies  = { suspended:`Suspend ${fixerName}? They will be blocked from accepting new bookings.`, approved:`Reinstate ${fixerName}?`, rejected:`Permanently remove ${fixerName}? This cannot be undone.` };
+  const btnClasses = { suspended:'yellow', rejected:'', approved:'green' };
+  requireConfirm(`${labels[newStatus]} Fixer`, bodies[newStatus], labels[newStatus], btnClasses[newStatus], () => applyFixerStatus(fixerId, fixerName, newStatus));
+}
+
+async function applyFixerStatus(fixerId, fixerName, newStatus) {
+  try {
+    await patchRow('fixers', fixerId, { status: newStatus });
+    toast(`${fixerName} → ${newStatus}`, newStatus==='approved'?'green':newStatus==='suspended'?'yellow':'red');
+    // Also reload pending since a rejection removes the fixer from applications
+    if (newStatus === 'rejected') loadPending();
+    loadFixers(getPeriod());
+  } catch (e) { toast('Failed: ' + e.message, 'red'); }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BULK ACTIONS
+// ─────────────────────────────────────────────────────────────────
+function updateBulkBar() {
+  const selected = document.querySelectorAll('.fixer-cb:checked, .pending-cb:checked');
+  const bar = document.getElementById('bulk-bar');
+  if (selected.length > 0) {
+    bar.classList.add('visible');
+    document.getElementById('bulk-count').textContent = `${selected.length} selected`;
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
+function clearBulkSelection() {
+  document.querySelectorAll('.fixer-cb, .pending-cb').forEach(cb => cb.checked = false);
+  document.getElementById('bulk-bar').classList.remove('visible');
+}
+
+async function bulkApproveSelected() {
+  const selected = [...document.querySelectorAll('.fixer-cb:checked, .pending-cb:checked')];
+  if (!selected.length) { toast('No fixers selected','yellow'); return; }
+  requireConfirm('Bulk Approve', `Approve ${selected.length} selected fixers?`, 'Approve All', 'green', async () => {
+    for (const cb of selected) await patchRow('fixers', cb.dataset.id, { status: 'approved' }).catch(()=>{});
+    toast(`${selected.length} fixers approved`, 'green');
+    clearBulkSelection();
+    loadFixers(getPeriod()); loadPending();
+  });
+}
+
+async function bulkSuspendSelected() {
+  const selected = [...document.querySelectorAll('.fixer-cb:checked')];
+  if (!selected.length) { toast('No fixers selected','yellow'); return; }
+  requireConfirm('Bulk Suspend', `Suspend ${selected.length} selected fixers?`, 'Suspend All', 'yellow', async () => {
+    for (const cb of selected) await patchRow('fixers', cb.dataset.id, { status: 'suspended' }).catch(()=>{});
+    toast(`${selected.length} fixers suspended`, 'yellow');
+    clearBulkSelection();
+    loadFixers(getPeriod());
+  });
+}
+
+async function bulkRejectSelected() {
+  const selected = [...document.querySelectorAll('.fixer-cb:checked, .pending-cb:checked')];
+  if (!selected.length) { toast('No fixers selected','yellow'); return; }
+  requireConfirm('Bulk Remove', `Remove ${selected.length} fixers from the platform? Cannot be undone.`, 'Remove All', '', async () => {
+    for (const cb of selected) await patchRow('fixers', cb.dataset.id, { status: 'rejected' }).catch(()=>{});
+    toast(`${selected.length} fixers removed`, 'red');
+    clearBulkSelection();
+    loadFixers(getPeriod()); loadPending();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LEADERBOARD
+// ─────────────────────────────────────────────────────────────────
+async function loadLeaderboard() {
+  if (!_fixersData.length) {
+    const days = getPeriod();
+    await loadFixers(days);
+  }
+  renderLeaderboard(_fixersData);
+  document.getElementById('lb-completion')._loaded = true;
+}
+
+function renderLeaderboard(rows) {
+  if (!rows?.length) return;
+  const byCompletion = [...rows].sort((a,b) => (b.completion_pct||0)-(a.completion_pct||0)).slice(0,10);
+  const byRating     = [...rows].sort((a,b) => (b.avg_rating||0)-(a.avg_rating||0)).slice(0,10);
+  const byJobs       = [...rows].sort((a,b) => (b.bookings_completed||0)-(a.bookings_completed||0)).slice(0,10);
+
+  const renderLb = (list, valFn, labelFn) => list.map((f, i) => `
+    <div class="leaderboard-item">
+      <div class="lb-rank lb-rank-${i<3?i+1:'n'}">${i+1}</div>
+      <div class="lb-info">
+        <div class="lb-name" style="cursor:pointer;color:var(--accent2)" onclick="openFixerProfile('${f.fixer_id||f.id}')">${esc(f.full_name||'—')}</div>
+        <div class="lb-city">${esc(f.city||'—')}</div>
+      </div>
+      <div class="lb-stat">
+        <div class="lb-value">${valFn(f)}</div>
+        <div class="lb-label">${labelFn}</div>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('lb-completion').innerHTML = renderLb(byCompletion, f => (f.completion_pct||0)+'%', 'completion rate');
+  document.getElementById('lb-rating').innerHTML     = renderLb(byRating,     f => f.avg_rating?'⭐ '+f.avg_rating:'—', 'avg rating');
+  document.getElementById('lb-jobs').innerHTML       = renderLb(byJobs,       f => f.bookings_completed||0, 'jobs done');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BOOKINGS PAGE
+// ─────────────────────────────────────────────────────────────────
+let _bookingsData = [];
+
+async function loadBookings() {
+  const el = document.getElementById('bookings-section');
+  el._loaded = true;
+  el.innerHTML = '<div class="loader">Loading bookings…</div>';
+  try {
+    const rows = await queryView('bookings', `order=created_at.desc&select=id,status,category,city,total_amount,created_at,customer_id,fixer_id,cancellation_reason&limit=200`);
+    _bookingsData = rows || [];
+    renderBookingsTable(rows);
+  } catch(e) {
+    el.innerHTML = `<div class="loader">Could not load bookings: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderBookingsTable(rows) {
+  const el = document.getElementById('bookings-section');
+  if (!rows?.length) { el.innerHTML='<div class="loader">No bookings found.</div>'; return; }
+  el.innerHTML = `<table>
+    <thead><tr>
+      <th>Booking ID</th><th>Status</th><th>Category</th><th>City</th><th>Amount</th><th>Cancellation Reason</th><th>Date</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(b => `<tr data-status="${b.status}">
+        <td class="mono" style="font-size:11px">${b.id?b.id.slice(0,8)+'…':'—'}</td>
+        <td><span class="result-tag ${statusTagClass(b.status)}">${esc(b.status||'—')}</span></td>
+        <td>${esc(b.category||'—')}</td>
+        <td>${esc(b.city||'—')}</td>
+        <td style="font-weight:700">R${(b.total_amount||0).toFixed(2)}</td>
+        <td style="font-size:12px;color:var(--dim)">${esc(b.cancellation_reason||'—')}</td>
+        <td style="color:var(--dim);font-size:12px">${b.created_at?new Date(b.created_at).toLocaleDateString('en-ZA'):'—'}</td>
+        <td><button class="btn-action" style="font-size:10px" onclick="openBookingDetail('${b.id}')">Detail</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function filterBookingsTable() {
+  const status = document.getElementById('bookings-status-filter').value;
+  const filtered = status ? _bookingsData.filter(b => b.status === status) : _bookingsData;
+  renderBookingsTable(filtered);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CUSTOMERS PAGE
+// ─────────────────────────────────────────────────────────────────
+let _customersData = [];
+
+async function loadCustomers() {
+  const el = document.getElementById('customers-section');
+  el._loaded = true;
+  el.innerHTML = '<div class="loader">Loading customers…</div>';
+  try {
+    const rows = await queryView('profiles', 'user_role=eq.customer&order=created_at.desc&select=id,full_name,email,phone,created_at,wallet_credit&limit=200');
+    _customersData = rows || [];
+    el.innerHTML = `<table>
+      <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Wallet</th><th>Since</th><th></th></tr></thead>
+      <tbody>
+        ${rows.map(c => `<tr>
+          <td><strong>${esc(c.full_name||'—')}</strong></td>
+          <td class="mono" style="font-size:12px">${esc(c.email||'—')}</td>
+          <td class="mono" style="font-size:12px">${esc(c.phone||'—')}</td>
+          <td style="color:var(--green)">R${(c.wallet_credit||0).toFixed(2)}</td>
+          <td style="color:var(--dim);font-size:12px">${c.created_at?new Date(c.created_at).toLocaleDateString('en-ZA'):'—'}</td>
+          <td><button class="btn-action" style="font-size:10px" onclick="searchCustomerBookings('${c.id}','${esc(c.full_name||c.email||c.id)}')">Bookings</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  } catch(e) {
+    el.innerHTML = `<div class="loader">Could not load customers: ${esc(e.message)}</div>`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BOOKING DETAIL MODAL
+// ─────────────────────────────────────────────────────────────────
+async function openBookingDetail(bookingId) {
+  openModal('booking-modal');
+  document.getElementById('booking-modal-content').innerHTML = '<div class="loader">Loading…</div>';
+  try {
+    const [bookings, disputes] = await Promise.all([
+      queryView('bookings', `id=eq.${bookingId}&select=*&limit=1`),
+      queryView('disputes', `booking_id=eq.${bookingId}&select=id,reason,outcome,created_at&limit=5`),
+    ]);
+    const b = bookings?.[0];
+    if (!b) { document.getElementById('booking-modal-content').innerHTML = '<div class="loader">Booking not found.</div>'; return; }
+    let customerName='—', fixerName='—';
+    try { if (b.customer_id) { const [c] = await queryView('profiles', `id=eq.${b.customer_id}&select=full_name,email&limit=1`); if (c) customerName = c.full_name||c.email||b.customer_id; } } catch(_) {}
+    try { if (b.fixer_id)    { const [f] = await queryView('fixers',    `id=eq.${b.fixer_id}&select=full_name&limit=1`);           if (f) fixerName    = f.full_name||b.fixer_id; } } catch(_) {}
+    document.getElementById('booking-modal-content').innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-field"><label>Booking ID</label><span class="mono" style="font-size:11px">${esc(b.id)}</span></div>
+        <div class="detail-field"><label>Status</label><span class="result-tag ${statusTagClass(b.status)}">${esc(b.status||'—')}</span></div>
+        <div class="detail-divider"></div>
+        <div class="detail-field"><label>Customer</label><span>${esc(customerName)}</span></div>
+        <div class="detail-field"><label>Fixer</label><span>${esc(fixerName)}</span></div>
+        <div class="detail-field"><label>Category</label><span>${esc(b.category||'—')}</span></div>
+        <div class="detail-field"><label>City</label><span>${esc(b.city||'—')}</span></div>
+        <div class="detail-field"><label>Total Amount</label><span style="font-weight:700;color:var(--green)">R${(b.total_amount||0).toFixed(2)}</span></div>
+        <div class="detail-field"><label>Payment Method</label><span>${esc(b.payment_method||'—')}</span></div>
+        <div class="detail-field"><label>Created</label><span>${b.created_at?new Date(b.created_at).toLocaleString('en-ZA'):'—'}</span></div>
+        <div class="detail-field"><label>Completed</label><span>${b.completed_at?new Date(b.completed_at).toLocaleString('en-ZA'):'—'}</span></div>
+        ${b.cancellation_reason?`<div class="detail-field" style="grid-column:1/-1"><label>Cancellation Reason</label><span style="color:var(--red)">${esc(b.cancellation_reason)}</span></div>`:''}
+        ${b.notes?`<div class="detail-field" style="grid-column:1/-1"><label>Notes</label><span style="color:var(--dim)">${esc(b.notes)}</span></div>`:''}
+        ${disputes?.length?`
+          <div class="detail-divider"></div>
+          <div class="detail-field" style="grid-column:1/-1">
+            <label>Disputes (${disputes.length})</label>
+            ${disputes.map(d=>`<div style="margin-top:8px;padding:10px;background:var(--bg);border-radius:8px;font-size:12px">
+              <span class="result-tag ${d.outcome?'tag-green':'tag-red'}" style="margin-right:8px">${d.outcome||'open'}</span>
+              ${esc(d.reason||'—')} · <span style="color:var(--dim)">${new Date(d.created_at).toLocaleDateString('en-ZA')}</span>
+            </div>`).join('')}
+          </div>`:''}
+      </div>
+    `;
+  } catch (e) {
+    document.getElementById('booking-modal-content').innerHTML = `<div class="loader">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// GLOBAL SEARCH
+// ─────────────────────────────────────────────────────────────────
+let _searchType = 'all', _searchDebounce;
+
+function setSearchType(type, btn) {
+  _searchType = type;
+  document.querySelectorAll('.search-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  const val = document.getElementById('global-search').value;
+  if (val.trim()) handleSearch(val);
+}
+
+function handleSearch(val) {
+  clearTimeout(_searchDebounce);
+  const el = document.getElementById('search-results');
+  if (!val.trim()) { el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<div class="search-result-card"><div class="loader" style="padding:20px">Searching…</div></div>';
+  _searchDebounce = setTimeout(() => doSearch(val.trim()), 340);
+}
+
+async function doSearch(q) {
+  const el = document.getElementById('search-results');
+  const results = [];
+  try {
+    if (_searchType==='all'||_searchType==='customer') {
+      try { const r = await queryView('profiles', `user_role=eq.customer&or=(email.ilike.*${encodeURIComponent(q)}*,full_name.ilike.*${encodeURIComponent(q)}*,phone.ilike.*${encodeURIComponent(q)}*)&select=id,full_name,email,phone,created_at,wallet_credit&limit=5`); if (r?.length) results.push({ type:'Customers', rows:r, render:renderCustomerResults }); } catch(_) {}
+    }
+    if (_searchType==='all'||_searchType==='fixer') {
+      try { const r = await queryView('fixers', `or=(full_name.ilike.*${encodeURIComponent(q)}*,phone.ilike.*${encodeURIComponent(q)}*)&select=id,full_name,phone,city,status,fixer_status,rating,total_completed,is_flagged&limit=5`); if (r?.length) results.push({ type:'Fixers', rows:r, render:renderFixerSearchResults }); } catch(_) {}
+    }
+    if ((_searchType==='all'||_searchType==='booking') && /^[0-9a-f-]{4,}/i.test(q)) {
+      try { const r = await queryView('bookings', `id=ilike.${encodeURIComponent(q)}*&select=id,status,category,city,total_amount,created_at,customer_id,fixer_id&limit=5`); if (r?.length) results.push({ type:'Bookings', rows:r, render:renderBookingResults }); } catch(_) {}
+    }
+  } catch (e) { el.innerHTML=`<div class="search-result-card"><div class="loader">Search error: ${esc(e.message)}</div></div>`; return; }
+  if (!results.length) { el.innerHTML=`<div class="search-result-card"><div class="loader" style="padding:20px">No results for "${esc(q)}"</div></div>`; return; }
+  el.innerHTML = results.map(r => r.render(r.rows)).join('');
+}
+
+function renderCustomerResults(rows) {
+  return `<div class="search-result-card"><h3>Customers (${rows.length})</h3>
+    <table style="margin:0"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Wallet</th><th>Since</th><th></th></tr></thead><tbody>
+    ${rows.map(c => `<tr>
+      <td><strong>${esc(c.full_name||'—')}</strong></td>
+      <td class="mono">${esc(c.email||'—')}</td>
+      <td class="mono">${esc(c.phone||'—')}</td>
+      <td style="color:var(--green)">R${(c.wallet_credit||0).toFixed(2)}</td>
+      <td style="color:var(--dim);font-size:12px">${c.created_at?new Date(c.created_at).toLocaleDateString('en-ZA'):'—'}</td>
+      <td><button class="btn-action" onclick="searchCustomerBookings('${c.id}','${esc(c.full_name||c.email||c.id)}')">Bookings</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+async function searchCustomerBookings(customerId, name) {
+  const el = document.getElementById('search-results');
+  try {
+    const bks = await queryView('bookings', `customer_id=eq.${customerId}&order=created_at.desc&select=id,status,category,city,total_amount,created_at,fixer_id&limit=20`);
+    if (!bks?.length) { toast('No bookings found','yellow'); return; }
+    el.innerHTML += `<div class="search-result-card"><h3>${esc(name)}'s Bookings (${bks.length})</h3>${renderBookingTable(bks)}</div>`;
+    el.lastElementChild.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  } catch (e) { toast('Error: '+e.message,'red'); }
+}
+
+function renderBookingResults(rows) { return `<div class="search-result-card"><h3>Bookings (${rows.length})</h3>${renderBookingTable(rows)}</div>`; }
+
+function renderBookingTable(rows) {
+  return `<table style="margin:0"><thead><tr><th>ID</th><th>Status</th><th>Category</th><th>City</th><th>Amount</th><th>Date</th><th></th></tr></thead><tbody>
+  ${rows.map(b => `<tr>
+    <td class="mono" style="font-size:11px">${b.id?b.id.slice(0,8)+'…':'—'}</td>
+    <td><span class="result-tag ${statusTagClass(b.status)}">${esc(b.status||'—')}</span></td>
+    <td>${esc(b.category||'—')}</td>
+    <td>${esc(b.city||'—')}</td>
+    <td style="font-weight:700">R${(b.total_amount||0).toFixed(2)}</td>
+    <td style="color:var(--dim);font-size:12px">${b.created_at?new Date(b.created_at).toLocaleDateString('en-ZA'):'—'}</td>
+    <td><button class="btn-action" onclick="openBookingDetail('${b.id}')">Detail</button></td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+function renderFixerSearchResults(rows) {
+  return `<div class="search-result-card"><h3>Fixers (${rows.length})</h3>
+    <table style="margin:0"><thead><tr><th>Name</th><th>City</th><th>Status</th><th>Rating</th><th>Completed</th><th></th></tr></thead><tbody>
+    ${rows.map(f => `<tr>
+      <td><strong style="cursor:pointer;color:var(--accent2)" onclick="openFixerProfile('${f.id}')">${esc(f.full_name||'—')}</strong></td>
+      <td>${esc(f.city||'—')}</td>
+      <td><span class="result-tag ${f.status==='approved'?'tag-green':f.status==='pending'?'tag-yellow':'tag-red'}">${esc(f.status||'—')}</span></td>
+      <td>${f.rating?'⭐ '+f.rating:'—'}</td>
+      <td>${f.total_completed??'—'}</td>
+      <td>
+        <button class="btn-sm" onclick="openFixerProfile('${f.id}')">Profile</button>
+        <button class="btn-suspend" style="margin-left:4px" onclick="openFixerActions('${f.id}','${esc(f.full_name||'—')}','${f.status}')">Actions</button>
+      </td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────────
+function downloadCSV(filename, rows, headers) {
+  const csv = [headers.join(','), ...rows.map(r => headers.map(h => `"${String(r[h]||'').replace(/"/g,'""')}"`).join(','))].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = filename;
+  a.click();
+}
+
+function exportFixersCSV() {
+  if (!_fixersData.length) { toast('Load fixers first','yellow'); return; }
+  downloadCSV('fixers-export.csv', _fixersData.map(f => ({
+    name: f.full_name||'', city: f.city||'', status: f.status||'', completed: f.bookings_completed||0,
+    cancelled: f.cancellations||0, completion_pct: f.completion_pct||'', rating: f.avg_rating||'', earnings: f.total_earnings||0
+  })), ['name','city','status','completed','cancelled','completion_pct','rating','earnings']);
+  toast('Fixer export downloaded','green');
+}
+
+function exportBookingsCSV() {
+  if (!_bookingsData.length) { toast('Load bookings first','yellow'); return; }
+  downloadCSV('bookings-export.csv', _bookingsData.map(b => ({
+    id: b.id||'', status: b.status||'', category: b.category||'', city: b.city||'',
+    amount: b.total_amount||0, date: b.created_at||'', cancellation_reason: b.cancellation_reason||''
+  })), ['id','status','category','city','amount','date','cancellation_reason']);
+  toast('Bookings export downloaded','green');
+}
+
+function exportCustomersCSV() {
+  if (!_customersData.length) { toast('Load customers first','yellow'); return; }
+  downloadCSV('customers-export.csv', _customersData.map(c => ({
+    name: c.full_name||'', email: c.email||'', phone: c.phone||'', wallet: c.wallet_credit||0, since: c.created_at||''
+  })), ['name','email','phone','wallet','since']);
+  toast('Customers export downloaded','green');
+}
+
+async function exportPayoutsCSV() {
+  try {
+    toast('Fetching payouts…','yellow');
+    const rows = await queryView('payouts', 'status=eq.released&order=released_at.asc&select=id,gross_amount,commission_amt,net_amount,status,released_at,payment_method,notes,fixer_id,booking_id&limit=500');
+    if (!rows?.length) { toast('No released payouts to export','yellow'); return; }
+    downloadCSV('payouts-export.csv', rows.map(p => ({
+      id: p.id||'', fixer_id: p.fixer_id||'', booking_id: p.booking_id||'',
+      gross: p.gross_amount||0, commission: p.commission_amt||0, net: p.net_amount||0,
+      method: p.payment_method||'', status: p.status||'', released_at: p.released_at||'', notes: p.notes||''
+    })), ['id','fixer_id','booking_id','gross','commission','net','method','status','released_at','notes']);
+    toast('Payouts export downloaded','green');
+  } catch(e) { toast('Export failed: '+e.message,'red'); }
+}
+function exportSinglePayoutCSV() {
+  if (!_currentFixer) { toast('No fixer loaded','yellow'); return; }
+  // Re-use the profile's payout data via the ptab-earnings table rows
+  const rows = [...document.querySelectorAll('#ptab-earnings tbody tr')].map(tr => {
+    const cells = [...tr.querySelectorAll('td')].map(td => td.textContent.trim());
+    return { id: cells[0]||'', gross: cells[1]||'', commission: cells[2]||'', net: cells[3]||'', method: cells[4]||'', status: cells[5]||'', released_at: cells[6]||'', notes: cells[7]||'' };
+  });
+  if (!rows.length) { toast('No payout data to export','yellow'); return; }
+  downloadCSV(`payouts-${(_currentFixer.full_name||'fixer').replace(/\s+/g,'-')}.csv`, rows,
+    ['id','gross','commission','net','method','status','released_at','notes']);
+  toast('Earnings export downloaded','green');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SETTINGS
+// ─────────────────────────────────────────────────────────────────
+function saveSettings() {
+  // INTENTIONALLY EMPTY — all credentials are injected server-side.
+  //
+  // CONFIG.supabaseUrl is set from window._SUPABASE_URL (injected by
+  // serve-admin-dashboard.js) and is display-only. It must NOT be mutated
+  // here because window._SUPABASE_URL feeds the "are we properly configured"
+  // guard and callRpc/queryView/patchRow all go through ops-proxy.js which
+  // reads SUPABASE_URL from the Netlify env var directly — not from CONFIG.
+  //
+  // CONFIG.serviceKey is intentionally always empty (never sent to the browser).
+  //
+  // The admin password is enforced server-side via HTTP Basic Auth; there is
+  // no client-side mechanism to change it.
+  //
+  // To change any credential: update the env var in Netlify and redeploy.
+  toast('All credentials are managed server-side — nothing to save here.', 'green');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────
+function pctClass(val, warnBelow, goodAbove) {
+  if (val == null) return '';
+  if (val >= goodAbove) return 'pct-good';
+  if (val >= warnBelow) return 'pct-warn';
+  return 'pct-bad';
+}
+
+function fmtSeconds(s) {
+  if (!s) return '—';
+  if (s < 60) return s+'s';
+  if (s < 3600) return Math.round(s/60)+'m';
+  return Math.round(s/3600)+'h';
+}
+
+function statusTagClass(s) {
+  if (!s) return 'tag-blue';
+  if (s==='completed')   return 'tag-green';
+  if (s==='cancelled')   return 'tag-red';
+  if (s==='in_progress') return 'tag-yellow';
+  return 'tag-blue';
+}
+
+function esc(str) {
+  // Escape all HTML special chars including single quotes — critical for onclick attributes.
+  // e.g. name "D'Angelo" inside onclick="fn('${esc(name)}')" would break without &#39;.
+  return String(str||'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
