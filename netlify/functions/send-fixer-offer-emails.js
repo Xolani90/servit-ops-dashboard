@@ -32,7 +32,7 @@ exports.handler = async (event) => {
     );
 
     // Atomically claim offers with email_pending flag that haven't had emails sent
-    const { data: offers, error: offersError } = await supabase.rpc('claim_pending_offer_emails', { max_offers: 50 });
+    const { data: offers, error: offersError } = await supabase.rpc('claim_pending_offer_emails', { p_max_offers: 50 });
 
     if (offersError) {
       console.error('[send-fixer-offer-emails] Error fetching offers:', offersError);
