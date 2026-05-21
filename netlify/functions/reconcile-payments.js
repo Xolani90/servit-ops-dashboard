@@ -33,7 +33,7 @@ exports.handler = async (event) => {
       .select('id, booking_id, provider_payment_id, status, created_at')
       .eq('status', 'pending')
       .eq('provider', 'yoco')
-      .isnot('provider_payment_id', null)
+      .is('provider_payment_id', null)
       .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
       .order('created_at', { ascending: false })
       .limit(100);
