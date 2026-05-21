@@ -35,8 +35,11 @@ async function issueYocoRefund(providerPaymentId, amountCents) {
 }
 
 exports.handler = async (event) => {
-  // Allow both scheduled invocation (no httpMethod) and manual HTTP trigger
-  const isScheduled = !event.httpMethod;
+  // Allow both scheduled invocation (x-nf-event: schedule header) and manual HTTP trigger
+  const isScheduled = 
+    event.headers?.['x-nf-event'] === 'schedule' ||
+    event.headers?.['user-agent']?.includes('Netlify Clockwork') ||
+    event.headers?.['user-agent']?.includes('Netlify');
 
   if (event.httpMethod === 'OPTIONS') {
     return {

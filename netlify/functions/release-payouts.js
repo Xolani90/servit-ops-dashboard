@@ -37,8 +37,11 @@ const CORS_HEADERS = {
 };
 
 exports.handler = async (event) => {
-  // Scheduled invocation has no httpMethod
-  const isScheduled = !event.httpMethod;
+  // Netlify Clockwork scheduled invocations include x-nf-event: schedule header
+  const isScheduled = 
+    event.headers?.['x-nf-event'] === 'schedule' ||
+    event.headers?.['user-agent']?.includes('Netlify Clockwork') ||
+    event.headers?.['user-agent']?.includes('Netlify');
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS_HEADERS };

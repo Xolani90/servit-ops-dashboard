@@ -1,6 +1,6 @@
 // FIX (v8.8): Added INTERNAL_SECRET guard — this function issues real Yoco
 // refunds and must never be callable by unauthenticated HTTP requests.
-// Netlify's own scheduler invokes with event.httpMethod === undefined.
+// Netlify Clockwork scheduled invocations include x-nf-event: schedule header.
 // All HTTP calls must supply the x-internal-secret header.
 const { createClient } = require('@supabase/supabase-js');
 
@@ -31,8 +31,12 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS_HEADERS };
 
   // FIX (v8.8): Reject HTTP calls that don't carry the internal secret.
-  // Netlify's own scheduler invokes functions with event.httpMethod === undefined.
-  if (event && event.httpMethod) {
+  // Netlify Clockwork scheduled invocations include x-nf-event: schedule header.
+  const isScheduled = 
+    event.headers?.['x-nf-event'] === 'schedule' ||
+    event.headers?.['user-agent']?.includes('Netlify Clockwork') ||
+    event.headers?.['user-agent']?.includes('Netlify');
+  if (!isScheduled) {
     const callerSecret = (event.headers || {})['x-internal-secret'];
     if (!INTERNAL_SECRET || callerSecret !== INTERNAL_SECRET) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
