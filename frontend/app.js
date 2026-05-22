@@ -4065,34 +4065,29 @@ function updatePricePreview(val) {
   }
   // Keep the simple inline preview visible immediately (no RPC latency).
   // It will be hidden automatically once the detailed mkt-fee-summary loads.
-  // Blended service fee: Servit 12% + Yoco 2.95% shown as one line
+  // Platform fee: 15% (min R15) — Yoco fee absorbed by Servit
   // ── Fee calculation (mirrors create-booking.js and calculate_booking_fees SQL) ──
-  // MOBILE: customer pays exactly their quoted amount. Platform fee (12%, min R15) +
-  //         Yoco fee (2.95% of quoted amount) are DEDUCTED from the fixer's payout.
-  //         Customer sees: "You'll be charged R800" | "Fixer receives R680.40 after fees"
-  // VENUE:  provider sets fixed price. Customer pays price + blended fees ON TOP.
+  // MOBILE: customer pays exactly their quoted amount. Platform fee (15%, min R15)
+  //         is DEDUCTED from the fixer's payout.
+  //         Customer sees: "You'll be charged R800" | "Fixer receives R680 after fees"
+  // VENUE:  provider sets fixed price. Customer pays price + platform fee ON TOP.
   //         Fixer always receives their full fixed price.
-  //         Customer sees: "Service price R150" + "Service fee R22.96" = "You'll be charged R172.96"
-  const platformFee = Math.max(amount * 0.12, 15);
+  //         Customer sees: "Service price R150" + "Platform fee R22.50" = "You'll be charged R172.50"
+  const platformFee = Math.max(amount * 0.15, 15);
   const isVenue     = _currentCategoryType === 'venue';
-  let   total, blendedFee, fixerReceives;
+  let   total, fixerReceives;
   if (isVenue) {
-    const subtotal = amount + platformFee;
-    const yocoFee  = Math.ceil(subtotal * 0.0295 * 100) / 100;
-    blendedFee     = platformFee + yocoFee;
-    total          = amount + blendedFee;
+    total          = amount + platformFee;
     fixerReceives  = amount; // provider always gets their full fixed price
   } else {
-    const yocoFee  = Math.ceil(amount * 0.0295 * 100) / 100;
-    blendedFee     = platformFee + yocoFee;
     total          = amount;  // customer pays exactly what they quoted
-    fixerReceives  = amount - blendedFee;
+    fixerReceives  = amount - platformFee;
   }
   if (previewBox) {
     previewBox.style.display = 'block';
     const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     setTxt('preview-fixer', formatZAR(isVenue ? amount : fixerReceives));
-    setTxt('preview-fee',   formatZAR(blendedFee));
+    setTxt('preview-fee',   formatZAR(platformFee));
     setTxt('preview-total', formatZAR(total));
   }
   // Wire 2: also fire the marketplace live fee summary (shows Yoco fee + wallet
@@ -4120,7 +4115,7 @@ function updatePricePreview(val) {
       });
       observer.observe(mktWrap, { childList: true, subtree: true });
     }
-    window._marketplace.showBookingSummary(mktWrap, amount);
+    window._marketplace.showBookingSummary(mktWrap, amount, _currentCategoryType);
   }
 }
 window.updatePricePreview = updatePricePreview;
@@ -4141,22 +4136,17 @@ function handleRequestContinue(category, label) {
   }
 
   // Same fee split as updatePricePreview — must stay in sync.
-  // MOBILE: total = amount (customer pays quoted price); fixer receives amount - blended fees.
-  // VENUE:  total = amount + blended fees (customer pays on top); fixer gets full fixed price.
-  const platformFee = Math.max(amount * 0.12, 15);
+  // MOBILE: total = amount (customer pays quoted price); fixer receives amount - platformFee.
+  // VENUE:  total = amount + platformFee (customer pays on top); fixer gets full fixed price.
+  const platformFee = Math.max(amount * 0.15, 15);
   const isVenue     = _currentCategoryType === 'venue';
-  let   total, blendedFee, fixerReceives;
+  let   total, fixerReceives;
   if (isVenue) {
-    const subtotal = amount + platformFee;
-    const yocoFee  = Math.ceil(subtotal * 0.0295 * 100) / 100;
-    blendedFee     = platformFee + yocoFee;
-    total          = amount + blendedFee;
+    total          = amount + platformFee;
     fixerReceives  = amount;
   } else {
-    const yocoFee  = Math.ceil(amount * 0.0295 * 100) / 100;
-    blendedFee     = platformFee + yocoFee;
     total          = amount;
-    fixerReceives  = amount - blendedFee;
+    fixerReceives  = amount - platformFee;
   }
   const summaryEl    = document.getElementById('booking-summary');
   const summaryLines = document.getElementById('summary-lines');
@@ -4190,10 +4180,10 @@ function handleRequestContinue(category, label) {
         </div>
       </div>
     `;
-    document.getElementById('summary-fee').textContent        = formatZAR(blendedFee);
+    document.getElementById('summary-fee').textContent        = formatZAR(platformFee);
     document.getElementById('summary-total').textContent      = formatZAR(total);
     const feeLabel = document.getElementById('summary-fee-label');
-    if (feeLabel) feeLabel.textContent = isVenue ? 'Service fee (added on top)' : 'Platform & processing fee (deducted from fixer)';
+    if (feeLabel) feeLabel.textContent = 'Platform fee (15%)';
     summaryEl.style.display = 'block';
     summaryEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }

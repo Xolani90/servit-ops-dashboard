@@ -26,6 +26,9 @@
 (function () {
   'use strict';
 
+  // Track current category type for fee calculation
+  let _currentCategoryType = 'mobile';
+
   // ─────────────────────────────────────────────────────────────────
   // UTILS
   // ─────────────────────────────────────────────────────────────────
@@ -318,6 +321,7 @@
   function applyRequestScreenPatch() {
     const _origShowRequestScreen = window.showRequestScreen;
     window.showRequestScreen = function (categoryId, emoji, label) {
+      _currentCategoryType = categoryId === 'venue' ? 'venue' : 'mobile';
       _origShowRequestScreen?.(categoryId, emoji, label);
       setTimeout(() => {
         checkSurgeSignal(categoryId);
@@ -634,6 +638,7 @@
         .rpc('calculate_booking_fees', {
           p_service_amount: serviceAmount,
           p_wallet_credit:  walletCredit,
+          p_service_type:   _currentCategoryType === 'venue' ? 'venue' : 'mobile',
         });
 
       if (error || !fees) {
@@ -670,35 +675,24 @@
   function renderFeeBreakdown(containerEl, fees) {
     const sa  = Number(fees.service_amount || 0);
     const wa  = Number(fees.wallet_applied || 0);
-    const yf  = Number(fees.yoco_fee || 0);
+    const pf  = Number(fees.platform_fee || 0);
     const tot = Number(fees.total_charged || sa);
+    const isVenue = fees.service_type === 'venue';
 
     const fmt = (n) => `R ${Math.abs(n).toFixed(2)}`;
 
     const rows = [];
 
-    rows.push({ label: 'Service fee',           amount: fmt(sa),  color: '',          weight: 'normal' });
-
-    if (wa > 0) {
-      rows.push({ label: '💰 Wallet credit',    amount: `− ${fmt(wa)}`, color: '#16A34A', weight: '600' });
+    if (isVenue) {
+      rows.push({ label: 'Service price', amount: fmt(sa), color: '', weight: 'normal' });
+    } else {
+      rows.push({ label: 'Service fee', amount: fmt(sa), color: '', weight: 'normal' });
     }
 
-    if (yf > 0) {
-      rows.push({
-        label: 'Yoco processing fee',
-        sub:   '2.95% · Secure card payment',
-        amount: fmt(yf),
-        color: '#6B7280',
-        weight: 'normal',
-      });
-    } else if (wa >= sa) {
-      rows.push({
-        label: 'Yoco processing fee',
-        sub:   'Fully covered by wallet credit',
-        amount: 'R 0.00',
-        color: '#16A34A',
-        weight: 'normal',
-      });
+    rows.push({ label: 'Platform fee (15%)', amount: fmt(pf), color: '', weight: 'normal' });
+
+    if (wa > 0) {
+      rows.push({ label: '💰 Wallet credit', amount: `− ${fmt(wa)}`, color: '#16A34A', weight: '600' });
     }
 
     const rowHtml = rows.map(r => `
@@ -729,10 +723,15 @@
   }
 
   // Public API: call from app.js with the container element + service amount
-  function showBookingSummary(containerOrId, serviceAmount) {
+  function showBookingSummary(containerOrId, serviceAmount, serviceType) {
     const el = typeof containerOrId === 'string'
       ? document.getElementById(containerOrId)
       : containerOrId;
+
+    // If serviceType is provided, update _currentCategoryType before calling the RPC
+    if (serviceType) {
+      _currentCategoryType = serviceType === 'venue' ? 'venue' : 'mobile';
+    }
 
     // Debounce — don't fire an RPC on every keystroke
     clearTimeout(_summaryDebounceTimer);
@@ -945,7 +944,9 @@
     showBookingSummary,              // call from app.js: showBookingSummary('container-id', amount)
     calculateFees: async (amount, wallet) => {    // utility for any custom UI
       const { data } = await getSupabase().rpc('calculate_booking_fees', {
-        p_service_amount: amount, p_wallet_credit: wallet || 0
+        p_service_amount: amount,
+        p_wallet_credit: wallet || 0,
+        p_service_type:   _currentCategoryType === 'venue' ? 'venue' : 'mobile',
       });
       return data;
     },

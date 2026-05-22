@@ -266,23 +266,20 @@ exports.handler = async (event) => {
         'Set APP_URL=https://your-domain.com in the Netlify dashboard immediately.');
     }
     // ── Fee split (mirrors frontend updatePricePreview + handleRequestContinue) ──
-    // MOBILE: customer pays exactly their quoted `amount`. Platform fee (12%, min R15)
-    //         + Yoco fee (2.95% of amount) are deducted from the fixer's payout.
-    //         Yoco is charged the raw `amount` — fees come out of what Servit remits to the fixer.
-    // VENUE:  provider sets a fixed price. Customer pays that price + blended fees on top.
-    //         Yoco is charged `amount + platformFee + yocoFee` — fixer always gets full `amount`.
-    const platformFee  = Math.max(amount * 0.12, 15);
+    // MOBILE: customer pays exactly their quoted `amount`. Platform fee (15%, min R15)
+    //         is deducted from the fixer's payout. Yoco fee is absorbed by Servit.
+    //         Yoco is charged the raw `amount` — platform fee comes out of what Servit remits to the fixer.
+    // VENUE:  provider sets a fixed price. Customer pays that price + platform fee on top.
+    //         Yoco is charged `amount + platformFee` — fixer always gets full `amount`.
+    const platformFee  = Math.max(amount * 0.15, 15);
     const isVenue      = serviceType === 'venue';
-    let   totalCharged, yocoFee;
+    let   totalCharged;
     if (isVenue) {
-      const subtotal  = amount + platformFee;
-      yocoFee         = Math.ceil(subtotal * 0.0295 * 100) / 100;
-      totalCharged    = subtotal + yocoFee;
+      totalCharged    = amount + platformFee;
     } else {
-      yocoFee         = Math.ceil(amount * 0.0295 * 100) / 100;
       totalCharged    = amount;  // customer pays exactly their quoted price
     }
-    console.log('Step 6: calling Yoco, serviceType:', serviceType, 'amount:', amount, 'platformFee:', platformFee, 'yocoFee:', yocoFee, 'totalCharged:', totalCharged, 'appUrl:', appUrl);
+    console.log('Step 6: calling Yoco, serviceType:', serviceType, 'amount:', amount, 'platformFee:', platformFee, 'totalCharged:', totalCharged, 'appUrl:', appUrl);
     const yocoResponse = await fetch('https://payments.yoco.com/api/checkouts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${YOCO_SECRET_KEY}` },
