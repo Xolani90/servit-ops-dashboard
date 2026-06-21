@@ -142,7 +142,15 @@ exports.handler = async (event) => {
     const checkout = await yocoResponse.json();
     console.log('[verify-payment] Yoco checkout status:', checkout.status, 'for booking:', booking_id);
 
-    if (checkout.status !== 'SUCCESSFUL' && checkout.status !== 'complete') {
+    // FIX (CRITICAL — v8.9.10): Yoco's checkout object uses lowercase status values
+    // ("created", "completed", "failed", "cancelled") per their Create Checkout docs —
+    // NOT "SUCCESSFUL"/"complete". The old check only matched 'SUCCESSFUL' or 'complete',
+    // so a checkout that came back "completed" (the real value seen in production) was
+    // wrongly treated as a failed payment, even though Yoco had charged the customer.
+    // Source: https://developer.yoco.com/online/api-reference/checkout/payments/accept-payments/
+    const successStatuses = ['successful', 'complete', 'completed'];
+    const checkoutStatus = (checkout.status || '').toLowerCase();
+    if (!successStatuses.includes(checkoutStatus)) {
       // Payment genuinely not successful
       return {
         statusCode: 200,
@@ -152,10 +160,12 @@ exports.handler = async (event) => {
     }
 
     // ── Payment confirmed — process it (same as webhook) ────────
-    const amountPaid = checkout.totalAmount ? checkout.totalAmount / 100 : null;
-    // Yoco checkouts don't have a single "payment ID" in the same way as the
-    // payment event — use the checkout's payment object if available
-    const yocoPaymentId = checkout.payments?.[0]?.id || checkout.id;
+    const amountPaid = checkout.totalAmount ? checkout.totalAmount / 100 : (checkout.amount ? checkout.amount / 100 : null);
+    // FIX: Yoco's documented Checkout object exposes the payment ID as a top-level
+    // `paymentId` field (null until paid, populated once complete) — not nested under
+    // `checkout.payments[0].id`, which doesn't exist in Yoco's schema. Fall back to the
+    // checkout id itself only if paymentId is genuinely absent.
+    const yocoPaymentId = checkout.paymentId || checkout.payments?.[0]?.id || checkout.id;
 
     const { data: result, error: processError } = await supabase.rpc('process_yoco_payment_success', {
       p_payment_id:          payment.id,

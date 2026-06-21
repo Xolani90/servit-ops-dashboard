@@ -9,6 +9,7 @@
 
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const { validateEnv }  = require('./utils/startup-validation');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -75,6 +76,11 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
+  // Fail fast if critical env vars are missing — a missing YOCO_WEBHOOK_SECRET means
+  // we'd skip signature verification and process unverified webhook payloads.
+  const envError = validateEnv(['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'YOCO_SECRET_KEY', 'YOCO_WEBHOOK_SECRET']);
+  if (envError) return envError;
+
   try {
     const rawBody = event.body;
     const signature = event.headers['yoco-webhook-signature'];
@@ -85,26 +91,41 @@ exports.handler = async (event) => {
       return { statusCode: 401, body: 'Invalid signature' };
     }
 
-    const payload = JSON.parse(rawBody);
-    // FIX: renamed from `const { id, status, metadata }` — 'metadata' was re-declared
-    //      below as `const metadata = verifiedPayment.metadata`, causing ReferenceError.
-    const { id: yocoPaymentId, status: payloadStatus } = payload;
+    const event_ = JSON.parse(rawBody);
 
-    if (!yocoPaymentId || payloadStatus !== 'SUCCESSFUL') {
+    // FIX (CRITICAL — v8.9.10): Yoco's actual webhook envelope is
+    //   { id: "evt_...", type: "payment.succeeded", payload: { id: "p_...", status: "succeeded", amount, metadata, ... } }
+    // The previous code destructured `id`/`status` directly off the top-level event,
+    // but the top level has no `status` field at all (only `type`), and its `id` is the
+    // EVENT id (evt_...), not the payment id. That meant `payloadStatus` was always
+    // undefined, so the `!== 'SUCCESSFUL'` check failed on every single call and the
+    // function exited at 200 before ever touching the DB — no booking was ever advanced
+    // by the webhook. Source: https://developer.yoco.com/online/api-reference/webhooks/events/successful-payment/
+    const eventType = event_.type;
+    const paymentObj = event_.payload || {};
+    const yocoPaymentId = paymentObj.id; // p_... — the real payment ID
+    const payloadStatus = paymentObj.status; // "succeeded" (lowercase) per Yoco docs
+
+    if (eventType !== 'payment.succeeded' || !yocoPaymentId) {
       return { statusCode: 200, body: 'Not a successful payment event' };
     }
 
     // CRITICAL: Verify payment server-side with Yoco API — never trust webhook alone
     const verifiedPayment = await verifyPaymentWithYoco(yocoPaymentId);
 
-    if (!verifiedPayment || verifiedPayment.status !== 'SUCCESSFUL') {
-      console.error('Payment verification failed for:', yocoPaymentId);
+    // FIX: Yoco's Payments API returns status "succeeded" (lowercase), matching the
+    // webhook payload's status field. Accept either casing defensively in case Yoco
+    // changes this, but don't silently accept anything else.
+    const verifiedStatus = (verifiedPayment?.status || '').toLowerCase();
+    if (!verifiedPayment || verifiedStatus !== 'succeeded') {
+      console.error('Payment verification failed for:', yocoPaymentId, 'webhook said:', payloadStatus, 'API said:', verifiedPayment?.status);
       return { statusCode: 200, body: 'Payment verification failed' };
     }
 
     const amountPaid = verifiedPayment.amount / 100; // Yoco sends cents
-    // FIX: renamed to yocoMetadata to avoid collision with earlier destructuring
-    const yocoMetadata = verifiedPayment.metadata || {};
+    // FIX: metadata lives on the payment object (verifiedPayment / paymentObj), not on
+    // the outer event envelope.
+    const yocoMetadata = verifiedPayment.metadata || paymentObj.metadata || {};
     const paymentUuid = yocoMetadata.payment_id;   // our internal payments.id
     const bookingId = yocoMetadata.booking_id;
 
@@ -234,7 +255,7 @@ exports.handler = async (event) => {
       p_priority: 10, // Highest priority for webhook
       p_radius_km: 25.0,
       p_batch_size: 3,
-      p_metadata: jsonb_build_object('source', 'yoco-webhook')
+      p_metadata: { source: 'yoco-webhook' }
     });
 
     if (requestError) {
