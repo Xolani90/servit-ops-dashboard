@@ -788,6 +788,11 @@ function handleBookingStatusChange(booking) {
 // FIX (Audit H9): Dedicated EXPIRED screen — explains what happened, confirms
 // refund is in progress, offers next steps. Replaces the silent home redirect.
 function showBookingExpiredScreen(booking) {
+  // FIX (v8.9.10): mark as acknowledged the moment it's actually shown to the
+  // customer (not tied to any one specific button) — see resumeActiveBookingIfAny
+  // for why this is needed.
+  try { localStorage.setItem('servit_seen_expired_' + booking.id, '1'); } catch (_) { /* non-fatal */ }
+
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-home').classList.add('active');
   updateActiveNav('home');
@@ -3319,9 +3324,28 @@ async function resumeActiveBookingIfAny() {
     }
 
     if (expiredBk) {
-      currentBookingId = expiredBk.id;
-      showBookingExpiredScreen(expiredBk);
-      return;
+      // FIX (v8.9.10): the EXPIRED-booking modal previously had no memory of
+      // having been shown/dismissed. resumeActiveBookingIfAny() runs on every
+      // app open for up to 2 hours after a booking expires, so a customer who
+      // already saw and acknowledged the modal (any of the three buttons,
+      // including "Dismiss") would see the exact same "No fixer was available"
+      // overlay again on their very next reload, and the one after that, for
+      // the full 2-hour window — even after clearing sessionStorage, since that
+      // only clears in-memory app state, not this persistent acknowledgement.
+      // Use localStorage (survives reloads/sessionStorage.clear(), but is
+      // explicit and per-booking so it can't mask a genuinely new failure).
+      let alreadySeen = false;
+      try {
+        alreadySeen = localStorage.getItem('servit_seen_expired_' + expiredBk.id) === '1';
+      } catch (_) { /* localStorage unavailable — fail open, show the modal */ }
+
+      if (!alreadySeen) {
+        currentBookingId = expiredBk.id;
+        showBookingExpiredScreen(expiredBk);
+        return;
+      }
+      // Already acknowledged — fall through to the normal home screen below
+      // instead of returning early into the modal again.
     }
 
     if (pendingBk) {
