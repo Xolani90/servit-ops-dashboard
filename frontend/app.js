@@ -1633,6 +1633,20 @@ async function toggleAvailability() {
       if (toggle) toggle.classList.toggle('on', result.available);
       if (lbl) { lbl.textContent = result.available ? 'ONLINE' : 'OFFLINE'; lbl.style.color = result.available ? 'rgba(74,222,128,.9)' : 'rgba(255,255,255,.6)'; }
       showToast(result.available ? "🟢 Now online — you'll receive job offers" : '⚫ Now offline', result.available ? 'success' : '');
+      // FIX (heartbeat/availability gap): toggle-availability stamps last_seen_at
+      // server-side the instant a fixer goes online, but that stamp only stays
+      // fresh if the heartbeat loop keeps refreshing it every ~60s. The loop
+      // currently only starts from showFixerDashboard() — if a fixer reaches this
+      // toggle through any other path, or the loop was stopped, available=true
+      // could sit in the DB with last_seen_at quietly going stale after 8 minutes,
+      // with no error and no visible symptom until offers stop arriving.
+      // Guaranteeing the loop is running whenever the fixer goes online closes
+      // that gap; startFixerHeartbeat() is a no-op if already running.
+      if (result.available === true) {
+        startFixerHeartbeat();
+      } else if (result.available === false) {
+        stopFixerHeartbeat();
+      }
       loadFixerDashboard();
       return;
     }
