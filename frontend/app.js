@@ -1163,7 +1163,8 @@ function showOfferScreen(bookingId, offerId) {
 
 async function loadOfferDetails(bookingId, offerId) {
   // v8.3 fix: guard against undefined IDs that produce id=eq.undefined 400s
-  if (!bookingId || !offerId) { console.warn("[Servit] loadOfferDetails called with undefined id"); return; }
+  // FIX (v8.9.10): also catch the literal string 'undefined', not just falsy values
+  if (!bookingId || !offerId || bookingId === 'undefined' || offerId === 'undefined') { console.warn("[Servit] loadOfferDetails called with invalid id:", bookingId, offerId); return; }
   const { data: booking } = await supabaseClient
     .from('bookings')
     .select('*, fixers!fixer_id(full_name, rating, category, price, price_type, is_verified, badge_top_fixer, badge_fast_responder, avg_response_time, total_completed, completion_rate)')
@@ -1330,6 +1331,19 @@ async function acceptOffer() {
       currentOfferOfferId = null;
       clearOfferCountdown(); // FIX 1: stop the countdown now that offer is accepted
       loadActiveJob(result.booking_id);
+    } else {
+      // FIX (v8.9.10): apiCall only throws on a non-2xx HTTP status. The DB RPC
+      // can also return 200 with a JSON body that has no `success` key at all
+      // (or success: false) in edge cases. Previously this branch didn't exist,
+      // so a fixer would see "Accepting offer..." and then literally nothing —
+      // no success, no error, no re-enabled button. Most commonly this happens
+      // when the 45s offer window expired between the dashboard render and the
+      // tap on this screen's Accept button.
+      showToast(result.error || 'Could not accept — this offer may have expired', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = `✓ Accept Job`; }
+      // Refresh the dashboard view so a vanished/expired offer disappears from
+      // Pending Offers instead of sitting there looking acceptable.
+      if (currentFixerProfile) loadFixerDashboard();
     }
   } catch (err) {
     showToast(err.message, 'error');
@@ -1380,6 +1394,11 @@ async function declineOffer() {
       currentOfferOfferId = null;
       clearOfferCountdown(); // FIX 1: stop countdown on decline
       showFixerDashboard();
+    } else {
+      // FIX (v8.9.10): same missing-else gap as acceptOffer — a non-success
+      // 200 response (e.g. offer already expired/resolved) showed nothing.
+      showToast(result.error || 'Could not decline — this offer may have expired', 'error');
+      if (currentFixerProfile) loadFixerDashboard();
     }
   } catch (err) {
     showToast(err.message, 'error');
@@ -1390,7 +1409,13 @@ async function declineOffer() {
 
 async function loadActiveJob(bookingId) {
   // v8.3 fix: guard against undefined bookingId
-  if (!bookingId) { console.warn("[Servit] loadActiveJob called with undefined bookingId"); return; }
+  // FIX (v8.9.10): also guard against the literal string "undefined" — a plain
+  // `!bookingId` check only catches real undefined/null/''. If a value gets
+  // stringified before reaching this function (e.g. via a template literal
+  // somewhere upstream), `bookingId === "undefined"` is truthy and sails
+  // straight past the old guard, producing a `?id=eq.undefined` query against
+  // Supabase (confirmed in production logs as two 400s on the bookings table).
+  if (!bookingId || bookingId === 'undefined') { console.warn("[Servit] loadActiveJob called with invalid bookingId:", bookingId); return; }
 
   // BUG 5 FIX: Tear down any existing subscription BEFORE fetching and re-subscribing.
   // Previously, rapid status changes would call loadActiveJob() multiple times in quick
