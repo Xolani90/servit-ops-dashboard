@@ -4586,16 +4586,28 @@ async function showNotificationsScreen() {
       return;
     }
 
-    const iconMap = { booking: '📋', payment: '💰', review: '⭐', message: '💬', payout: '✅', dispute: '⚠️', demand_alert: '🔔' };
-    const bgMap  = { booking: '#E8F5EE', payment: '#FDF3E0', review: '#FDF3E0', message: '#E8F0FA', payout: '#E8F5EE', dispute: '#FEE2E2' };
+    const iconMap = { booking: '📋', payment: '💰', review: '⭐', message: '💬', payout: '✅', dispute: '⚠️', demand_alert: '🔔', job_offer: '🔧' };
+    const bgMap  = { booking: '#E8F5EE', payment: '#FDF3E0', review: '#FDF3E0', message: '#E8F0FA', payout: '#E8F5EE', dispute: '#FEE2E2', job_offer: '#FDF3E0' };
 
     container.innerHTML = `<div id="notif-items">` + notifs.map(n => {
       const type = n.type || 'booking';
       const icon = iconMap[type] || '🔔';
       const bg   = bgMap[type] || '#F0EBE0';
       const isUnread = !n.read;
-      const navDest = type === 'booking' || type === 'payment' ? 'bookings' : type === 'message' ? 'chat-list' : '';
-      return `<div class="notif-item ${isUnread ? 'unread' : ''}" data-type="${type}" data-id="${n.id}" data-dest="${navDest}" onclick="handleNotifTap(this.dataset.id,this.dataset.dest)">
+      // FIX (v8.9.10): 'job_offer' and 'demand_alert' were missing from this map
+      // entirely, so navDest resolved to '' for them and handleNotifTap's
+      // `if (dest) navigate(dest)` guard silently did nothing -- a fixer could
+      // receive "New job offer!" and tapping it would just mark it read and
+      // go nowhere. job_offer routes to the dedicated offer screen (handled
+      // specially in handleNotifTap, since it needs the offer's booking_id
+      // looked up first); demand_alert routes fixers to their dashboard where
+      // open jobs/offers are visible.
+      const navDest = type === 'booking' || type === 'payment' ? 'bookings'
+        : type === 'message' ? 'chat-list'
+        : type === 'job_offer' ? 'job-offer'
+        : type === 'demand_alert' ? 'home'
+        : '';
+      return `<div class="notif-item ${isUnread ? 'unread' : ''}" data-type="${type}" data-id="${n.id}" data-dest="${navDest}" data-related="${n.related_id || ''}" onclick="handleNotifTap(this.dataset.id,this.dataset.dest,this.dataset.related)">
         <div class="notif-icon-circle" style="background:${bg}">${icon}</div>
         <div class="notif-body">
           <p class="notif-title ${isUnread ? '' : 'read'}">${escapeHtml(n.message || n.title || 'Notification')}</p>
@@ -4636,8 +4648,39 @@ function filterNotifsByType(type, btn) {
 }
 window.filterNotifsByType = filterNotifsByType;
 
-async function handleNotifTap(notifId, dest) {
+async function handleNotifTap(notifId, dest, relatedId) {
   await supabaseClient.from('notifications').update({ read: true }).eq('id', notifId);
+
+  // FIX (v8.9.10): job_offer notifications store the OFFER id in related_id,
+  // but showOfferScreen() needs both booking_id and offer_id. Look the offer
+  // up first. Also handle the case where the offer has since expired or been
+  // taken/declined — by the time a fixer taps the notification, that 45s
+  // window may already be gone, so fall back gracefully instead of opening a
+  // dead offer screen.
+  if (dest === 'job-offer') {
+    if (!relatedId) { navigate('home'); return; }
+    try {
+      const { data: offer } = await supabaseClient
+        .from('offers')
+        .select('id, booking_id, status')
+        .eq('id', relatedId)
+        .maybeSingle();
+
+      if (offer && offer.status === 'pending') {
+        showOfferScreen(offer.booking_id, offer.id);
+      } else {
+        // Offer expired, already accepted/declined, or no longer exists —
+        // send the fixer to their dashboard instead of a dead screen.
+        showToast('That offer is no longer available', 'info');
+        navigate('home');
+      }
+    } catch (e) {
+      console.warn('[Servit] handleNotifTap job-offer lookup failed:', e.message);
+      navigate('home');
+    }
+    return;
+  }
+
   if (dest) navigate(dest);
 }
 window.handleNotifTap = handleNotifTap;
