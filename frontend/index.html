@@ -945,12 +945,14 @@ select.input{cursor:pointer}
 
     <div id="heartbeat-banner" style="display:none;background:#fff3cd;color:#856404;border-bottom:1px solid #ffc107;padding:10px 16px;font-size:13px;align-items:center;gap:8px"></div>
 
-    <!-- New offer pulse banner -->
-    <div id="fixer-new-offer-banner" style="display:none;background:linear-gradient(135deg,var(--gold),#E8A820);padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;animation:servit-pulse .8s infinite" onclick="document.getElementById('fixer-new-offer-banner').style.display='none'">
-      <span style="font-size:20px">🔔</span>
-      <p style="font-weight:700;color:#fff;font-size:14px;flex:1">New job offer arrived!</p>
-      <span style="color:rgba(255,255,255,.8);font-size:18px">›</span>
-    </div>
+    <!-- FIX (v8.9.10): removed 'fixer-new-offer-banner' static pulse banner.
+         It had no JS anywhere wiring it to real offer state (nothing ever
+         called .style.display = 'flex' on it), and its own inline style
+         declared `display:none` then `display:flex` in the same attribute --
+         the second value wins in CSS, so it rendered visible and permanently
+         pulsing from page load regardless of whether any offer existed.
+         The "Pending Offers" section below already reflects live offer data
+         correctly, so this dead banner was removed rather than re-wired. -->
 
     <div style="padding:14px 16px 0">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
