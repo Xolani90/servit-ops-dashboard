@@ -293,6 +293,7 @@ exports.handler = async (event) => {
         currency:   'ZAR',
         successUrl: `${appUrl}?payment=success&booking_id=${bookingId}`,
         cancelUrl:  `${appUrl}?payment=cancelled&booking_id=${bookingId}`,
+        failureUrl: `${appUrl}?payment=failed&booking_id=${bookingId}`,
         metadata:   { booking_id: bookingId, payment_id: paymentResult.payment_id, tier, category },
       }),
     });

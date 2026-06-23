@@ -419,9 +419,6 @@ async function createBooking(description, address, phone, amount, bookingMode, s
   }
 }
 
-// Called from showApp() when URL contains ?payment=success|cancelled|failed.
-// Running here (post-auth) ensures subscribeToBookingStatus gets an authenticated
-// Supabase session and the realtime channel actually receives updates.
 function checkPaymentReturn() {
   const params = new URLSearchParams(window.location.search);
   const paymentStatus = params.get('payment');
@@ -429,46 +426,128 @@ function checkPaymentReturn() {
 
   if (!paymentStatus) return;
 
-  // Clean URL without reload
+  // Clean URL without reload — do this immediately so a refresh never re-triggers
   window.history.replaceState({}, '', '/');
 
-  if (paymentStatus === 'success' && bookingId) {
-    trackEvent('payment_success', { booking_id: bookingId });
-    // BUG 6 FIX: Only clear the idempotency key on confirmed payment success.
-    // Payment cancelled/failed paths must KEEP the key so a retry creates the
-    // same booking row (idempotent), not a new duplicate.
-    try { sessionStorage.removeItem('servit_booking_ikey'); } catch (_) {}
-    // FIX 3: Clear the booking draft on successful payment — without this the stale
-    // draft persists in sessionStorage and pre-fills the next booking form with the
-    // previous job's data, confusing customers who book a different service later.
-    try { sessionStorage.removeItem('servit_booking_draft'); } catch (_) {}
-    showPaymentSuccessScreen(bookingId);
-  } else if (paymentStatus === 'success') {
-    // Production hardening: Yoco can occasionally return without booking_id if
-    // an upstream URL is cached/mangled. Resume active booking instead of silently
-    // dropping the customer on home with a paid charge.
-    trackEvent('payment_success_missing_booking_id');
-    showToast('Payment received. Restoring your booking…');
-    resumeActiveBookingIfAny();
-  } else if (paymentStatus === 'cancelled') {
-    trackEvent('payment_cancelled');
-    // BUG 12 FIX: Cancel the orphan booking when payment is abandoned.
-    // A CREATED/PENDING_PAYMENT booking exists in the DB from the earlier API call.
-    // If the user cancels Yoco, this booking sits in CREATED state indefinitely — 
-    // no refund is needed (no payment was taken) but the row should be cleaned up.
-    // The idempotency key is KEPT (not cleared) so if the user retries from the
-    // result sheet, the Netlify function returns the existing booking_id.
-    if (bookingId) {
-      apiCall('cancel-booking', { booking_id: bookingId }).catch(e =>
-        console.warn('[Servit] Orphan booking cleanup failed (non-fatal):', e.message)
-      );
+  // ── CRITICAL: Never trust Yoco redirect params alone. ──────────────────────
+  // Yoco can return ?payment=failed even when the charge succeeded (3DS timing,
+  // bank redirect quirks, network drops mid-redirect). We ALWAYS verify against
+  // our DB first and only fall back to Yoco's API if the DB is inconclusive.
+  // This is the same pattern Uber/Bolt use — redirect params are a hint, not truth.
+  // ────────────────────────────────────────────────────────────────────────────
+
+  if (!bookingId) {
+    // No booking_id at all — can't verify anything, try to resume
+    if (paymentStatus === 'success') {
+      trackEvent('payment_success_missing_booking_id');
+      showToast('Payment received. Restoring your booking…');
+      resumeActiveBookingIfAny();
+    } else if (paymentStatus === 'cancelled') {
+      showPaymentResultSheet('cancelled');
+    } else {
+      // failed with no booking_id — check for any active booking before giving up
+      resumeActiveBookingIfAny();
     }
-    showPaymentResultSheet('cancelled');
-  } else if (paymentStatus === 'failed') {
-    trackEvent('payment_failed', { booking_id: bookingId });
-    showPaymentResultSheet('failed', bookingId);
+    return;
   }
+
+  // Show a neutral "verifying" overlay while we check — never flash failure
+  // to the user before we've confirmed it
+  const verifyOverlay = document.createElement('div');
+  verifyOverlay.id = 'payment-verify-overlay';
+  verifyOverlay.style.cssText = 'position:fixed;inset:0;background:var(--warm-white);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:32px;text-align:center';
+  verifyOverlay.innerHTML = \`
+    <div style="font-size:48px;margin-bottom:20px;animation:servit-pulse 1.5s ease infinite">⏳</div>
+    <p style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--text-dark);margin-bottom:8px">Confirming your payment…</p>
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.7;max-width:280px">Please wait — do not close this page.</p>
+    <div style="display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:12px;margin-top:20px">
+      <span style="width:14px;height:14px;border-radius:50%;border:2px solid var(--gold);border-top-color:transparent;animation:spin .7s linear infinite;display:inline-block;flex-shrink:0"></span>
+      Verifying with payment provider…
+    </div>\`;
+  document.body.appendChild(verifyOverlay);
+
+  // Step 1: Check our DB — if booking already past PENDING_PAYMENT, payment landed
+  (async () => {
+    try {
+      const { data: bk } = await supabaseClient
+        .from('bookings')
+        .select('id, status, payment_status')
+        .eq('id', bookingId)
+        .maybeSingle();
+
+      if (bk && bk.payment_status === 'paid') {
+        // DB confirms paid — payment went through regardless of what Yoco's URL said
+        verifyOverlay.remove();
+        trackEvent('payment_confirmed_db', { booking_id: bookingId, yoco_param: paymentStatus });
+        try { sessionStorage.removeItem('servit_booking_ikey'); } catch (_) {}
+        try { sessionStorage.removeItem('servit_booking_draft'); } catch (_) {}
+        if (bk.status === 'PENDING_PAYMENT' || bk.status === 'CREATED') {
+          // Webhook hasn't fired yet — show success screen which will poll until it does
+          showPaymentSuccessScreen(bookingId);
+        } else {
+          // Booking already advanced (SEARCHING, OFFERED, etc.) — go straight to waiting
+          currentBookingId = bookingId;
+          subscribeToBookingStatus(bookingId, handleBookingStatusChange);
+          showWaitingScreen(bookingId);
+        }
+        return;
+      }
+
+      // Step 2: DB doesn't confirm paid yet — call verify-payment to check Yoco API
+      // This handles the race where redirect arrives before webhook
+      let verifiedOk = false;
+      try {
+        const vr = await apiCall('verify-payment', { booking_id: bookingId });
+        if (vr && vr.ok !== false) {
+          verifiedOk = true;
+        }
+      } catch (e) {
+        console.warn('[Servit] verify-payment check error:', e.message);
+      }
+
+      verifyOverlay.remove();
+
+      if (verifiedOk) {
+        // Yoco confirmed paid
+        trackEvent('payment_confirmed_verify', { booking_id: bookingId });
+        try { sessionStorage.removeItem('servit_booking_ikey'); } catch (_) {}
+        try { sessionStorage.removeItem('servit_booking_draft'); } catch (_) {}
+        showPaymentSuccessScreen(bookingId);
+        return;
+      }
+
+      // Step 3: Both DB and Yoco API say not paid
+      // NOW we trust the Yoco redirect param
+      if (paymentStatus === 'cancelled') {
+        trackEvent('payment_cancelled', { booking_id: bookingId });
+        apiCall('cancel-booking', { booking_id: bookingId }).catch(e =>
+          console.warn('[Servit] Orphan booking cleanup failed (non-fatal):', e.message)
+        );
+        showPaymentResultSheet('cancelled', bookingId);
+      } else {
+        // failed or any other non-success param
+        trackEvent('payment_failed', { booking_id: bookingId });
+        showPaymentResultSheet('failed', bookingId);
+      }
+
+    } catch (err) {
+      // Network/auth error during verification — show waiting screen rather than
+      // false failure. The webhook will arrive regardless.
+      console.warn('[Servit] Payment verification error (non-fatal):', err.message);
+      verifyOverlay.remove();
+      if (paymentStatus === 'success') {
+        try { sessionStorage.removeItem('servit_booking_ikey'); } catch (_) {}
+        try { sessionStorage.removeItem('servit_booking_draft'); } catch (_) {}
+        showPaymentSuccessScreen(bookingId);
+      } else {
+        // Can't verify, can't confirm failure — resume active booking as safety net
+        showToast('Verifying your payment…');
+        resumeActiveBookingIfAny();
+      }
+    }
+  })();
 }
+
 
 function showPaymentSuccessScreen(bookingId) {
   // FIX (v8.9): Guard against empty/null bookingId — if Yoco somehow returns without
