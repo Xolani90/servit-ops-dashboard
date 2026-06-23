@@ -11,6 +11,12 @@
 //   if (missing) return missing; // returns a 500 response object
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Checks that all required env vars are present and non-empty.
+ * @param {string[]} vars - List of required env var names
+ * @param {object} [corsHeaders] - Optional CORS headers to include in the error response
+ * @returns {null | object} null if all present, or a Netlify response object (statusCode 500) if any missing
+ */
 function validateEnv(vars, corsHeaders = {}) {
   const missing = vars.filter(v => !process.env[v]);
   if (missing.length === 0) return null;

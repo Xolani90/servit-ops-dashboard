@@ -26,6 +26,7 @@ if (process.env.NODE_ENV !== 'production' && !process.env.SUPABASE_URL) {
 
 const { createClient } = require('@supabase/supabase-js');
 const { randomUUID }   = require('crypto');
+const { validateEnv }  = require('./utils/startup-validation');
 // Node 14 doesn't have crypto.randomUUID() globally — alias it
 if (typeof crypto === 'undefined') global.crypto = { randomUUID };
 
@@ -73,6 +74,10 @@ function extractCityFromAddress(address) {
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS_HEADERS };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: CORS_HEADERS, body: 'Method Not Allowed' };
+
+  // Fail fast if critical env vars are missing
+  const envError = validateEnv(['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'YOCO_SECRET_KEY'], CORS_HEADERS);
+  if (envError) return envError;
 
   try {
     // BUG 7 FIX: Removed ENV CHECK console.log — it leaked Supabase key names to

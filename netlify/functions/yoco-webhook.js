@@ -91,41 +91,26 @@ exports.handler = async (event) => {
       return { statusCode: 401, body: 'Invalid signature' };
     }
 
-    const event_ = JSON.parse(rawBody);
+    const payload = JSON.parse(rawBody);
+    // FIX: renamed from `const { id, status, metadata }` — 'metadata' was re-declared
+    //      below as `const metadata = verifiedPayment.metadata`, causing ReferenceError.
+    const { id: yocoPaymentId, status: payloadStatus } = payload;
 
-    // FIX (CRITICAL — v8.9.10): Yoco's actual webhook envelope is
-    //   { id: "evt_...", type: "payment.succeeded", payload: { id: "p_...", status: "succeeded", amount, metadata, ... } }
-    // The previous code destructured `id`/`status` directly off the top-level event,
-    // but the top level has no `status` field at all (only `type`), and its `id` is the
-    // EVENT id (evt_...), not the payment id. That meant `payloadStatus` was always
-    // undefined, so the `!== 'SUCCESSFUL'` check failed on every single call and the
-    // function exited at 200 before ever touching the DB — no booking was ever advanced
-    // by the webhook. Source: https://developer.yoco.com/online/api-reference/webhooks/events/successful-payment/
-    const eventType = event_.type;
-    const paymentObj = event_.payload || {};
-    const yocoPaymentId = paymentObj.id; // p_... — the real payment ID
-    const payloadStatus = paymentObj.status; // "succeeded" (lowercase) per Yoco docs
-
-    if (eventType !== 'payment.succeeded' || !yocoPaymentId) {
+    if (!yocoPaymentId || payloadStatus !== 'SUCCESSFUL') {
       return { statusCode: 200, body: 'Not a successful payment event' };
     }
 
     // CRITICAL: Verify payment server-side with Yoco API — never trust webhook alone
     const verifiedPayment = await verifyPaymentWithYoco(yocoPaymentId);
 
-    // FIX: Yoco's Payments API returns status "succeeded" (lowercase), matching the
-    // webhook payload's status field. Accept either casing defensively in case Yoco
-    // changes this, but don't silently accept anything else.
-    const verifiedStatus = (verifiedPayment?.status || '').toLowerCase();
-    if (!verifiedPayment || verifiedStatus !== 'succeeded') {
-      console.error('Payment verification failed for:', yocoPaymentId, 'webhook said:', payloadStatus, 'API said:', verifiedPayment?.status);
+    if (!verifiedPayment || verifiedPayment.status !== 'SUCCESSFUL') {
+      console.error('Payment verification failed for:', yocoPaymentId);
       return { statusCode: 200, body: 'Payment verification failed' };
     }
 
     const amountPaid = verifiedPayment.amount / 100; // Yoco sends cents
-    // FIX: metadata lives on the payment object (verifiedPayment / paymentObj), not on
-    // the outer event envelope.
-    const yocoMetadata = verifiedPayment.metadata || paymentObj.metadata || {};
+    // FIX: renamed to yocoMetadata to avoid collision with earlier destructuring
+    const yocoMetadata = verifiedPayment.metadata || {};
     const paymentUuid = yocoMetadata.payment_id;   // our internal payments.id
     const bookingId = yocoMetadata.booking_id;
 
@@ -248,19 +233,15 @@ exports.handler = async (event) => {
       console.error('Confirmation email failed (non-fatal):', emailErr.message);
     }
 
-    // Signal matching request (worker will process via queue)
-    const { error: requestError } = await supabase.rpc('request_matching', {
-      p_booking_id: bookingId,
-      p_requested_by: 'webhook',
-      p_priority: 10, // Highest priority for webhook
-      p_radius_km: 25.0,
-      p_batch_size: 3,
-      p_metadata: { source: 'yoco-webhook' }
-    });
-
-    if (requestError) {
-      // Non-fatal: cron will retry; log for visibility
-      console.error('Matching request failed (cron will retry):', requestError.message);
+    // Matching is now handled inline inside process_yoco_payment_success() via match_fixers().
+    // No separate request_matching call needed — result is already in `result.match_result`.
+    const matchResult = result?.match_result;
+    if (matchResult?.success) {
+      console.log(`[yoco-webhook] Instant match: booking ${bookingId} → OFFERED, ${matchResult.offers_sent} offer(s) sent`);
+    } else if (matchResult?.error === 'No fixers available') {
+      console.log(`[yoco-webhook] No fixers online for booking ${bookingId} — retry-cron will pick it up within 1 minute`);
+    } else {
+      console.log(`[yoco-webhook] match_fixers result for ${bookingId}:`, JSON.stringify(matchResult));
     }
 
     // Push notification: let the customer know we're actively searching.

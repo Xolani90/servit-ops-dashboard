@@ -4,15 +4,18 @@ if (process.env.NODE_ENV !== 'production' && !process.env.SUPABASE_URL) {
 }
 // ═══════════════════════════════════════════════════════════════
 // send-fixer-offer-emails — Send backup email to fixers on new offers
-// POST /.netlify/functions/send-fixer-offer-emails
+// Scheduled function (runs every minute via Netlify Clockwork).
 //
-// This function is called by a cron job to send backup emails to fixers
-// when new job offers are created. It queries for offers that were
-// created in the last minute but haven't had an email sent yet.
+// SECURITY FIX: Added isScheduled/INTERNAL_SECRET guard to match
+// all other scheduled functions in this codebase. Without this guard,
+// any unauthenticated HTTP POST could trigger up to 50 Resend email
+// sends per call (claim_pending_offer_emails returns up to 50 offers).
 // ═══════════════════════════════════════════════════════════════
 
 const { createClient } = require('@supabase/supabase-js');
 const { sendEmail } = require('./utils/email');
+
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -22,7 +25,24 @@ const CORS_HEADERS = {
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: CORS_HEADERS };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: CORS_HEADERS, body: 'Method Not Allowed' };
+
+  // Netlify Clockwork scheduled invocations include x-nf-event: schedule header.
+  // All manual HTTP calls must supply the x-internal-secret header.
+  const isScheduled =
+    event.headers?.['x-nf-event'] === 'schedule' ||
+    event.headers?.['user-agent']?.includes('Netlify Clockwork') ||
+    event.headers?.['user-agent']?.includes('Netlify');
+
+  if (!isScheduled) {
+    const callerSecret = (event.headers || {})['x-internal-secret'];
+    if (!INTERNAL_SECRET || callerSecret !== INTERNAL_SECRET) {
+      return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+  }
+
+  if (event.httpMethod !== 'POST' && !isScheduled) {
+    return { statusCode: 405, headers: CORS_HEADERS, body: 'Method Not Allowed' };
+  }
 
   try {
     const supabase = createClient(
@@ -49,7 +69,7 @@ exports.handler = async (event) => {
     for (const offer of offers) {
       try {
         const fixerEmail = offer.fixer_email;
-        
+
         // Null check: if fixer has no email, skip and mark as processed
         if (!fixerEmail || fixerEmail === '') {
           await supabase
@@ -81,18 +101,18 @@ exports.handler = async (event) => {
           `
         );
 
-        // Mark offer as email sent
+        sentCount++;
+
+        // Mark as sent
         await supabase
           .from('offers')
           .update({ metadata: { email_sent: true, sent_at: new Date().toISOString() } })
           .eq('id', offer.id);
 
-        sentCount++;
-        console.log('[send-fixer-offer-emails] Email sent to fixer', offer.fixer_id, 'for offer', offer.id);
       } catch (emailError) {
-        console.error('[send-fixer-offer-emails] Error sending email for offer', offer.id, ':', emailError.message);
+        console.error(`[send-fixer-offer-emails] Failed to send email for offer ${offer.id}:`, emailError);
         errors.push({ offer_id: offer.id, error: emailError.message });
-        
+
         // Mark as attempted even if failed to avoid retry loops
         await supabase
           .from('offers')

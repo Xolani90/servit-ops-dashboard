@@ -1,6 +1,6 @@
 {
   "name": "servit",
-  "version": "8.9.8",
+  "version": "8.9.10",
   "description": "Production Uber-Style Service Marketplace",
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

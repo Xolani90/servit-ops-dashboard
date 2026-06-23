@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-# SERVIT v6.5 — Netlify Configuration
+# SERVIT v8.9.10 — Netlify Configuration
 # ═══════════════════════════════════════════════════════════════
 
 # ── REQUIRED environment variables ───────────────────────────────────────────
@@ -107,7 +107,7 @@
     X-Content-Type-Options = "nosniff"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://payments.yoco.com https://c.yoco.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://fonts.gstatic.com https://nominatim.openstreetmap.org; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://payments.yoco.com https://c.yoco.com https://online.yoco.com https://cdn.jsdelivr.net https://unpkg.com https://fonts.googleapis.com https://fonts.gstatic.com https://nominatim.openstreetmap.org; img-src 'self' data: https:; frame-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 [[headers]]
   for = "/index.html"
@@ -152,7 +152,7 @@
     Access-Control-Allow-Headers = "Content-Type, Authorization"
 
 # PERFORMANCE FIX: Keep accept-offer and decline-offer warm to reduce cold start latency
-# in the 45-second offer acceptance window. These functions are called by fixers
+# in the 90-second offer acceptance window. These functions are called by fixers
 # immediately after receiving push notifications, so cold starts would eat into the
 # critical acceptance window.
 [functions."accept-offer"]
@@ -258,3 +258,24 @@
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "POST, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+# PRODUCTION HARDENING: retry-matching was missing CORS headers, causing
+# OPTIONS preflight requests to fail with a 404. Browsers block the subsequent
+# POST when preflight fails, so the "Retry matching" button silently did nothing
+# for users whose bookings were stuck in SEARCHING.
+[[headers]]
+  for = "/.netlify/functions/retry-matching"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+# PRODUCTION HARDENING: Global default timeout for all functions.
+# Individual function overrides (accept-offer, decline-offer = 10s) still apply.
+# Without this, functions default to 10s on free Netlify plans but documentation
+# recommends explicit configuration to avoid surprises across plan changes.
+[functions]
+  node_bundler = "esbuild"
+
+[functions."*"]
+  timeout = 26

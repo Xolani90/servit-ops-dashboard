@@ -1,10 +1,17 @@
 // ═══════════════════════════════════════════════════════════════
 // reconcile-searching-bookings — STEP 2: Reconcile stuck SEARCHING bookings
 // Scheduled function (cron) that finds bookings stuck in SEARCHING > 2 minutes
-// and aggressively re-triggers match_fixers with expanded radius
+// and aggressively re-triggers match_fixers with expanded radius.
+//
+// SECURITY FIX: Added isScheduled/INTERNAL_SECRET guard. Without this,
+// any unauthenticated HTTP POST could trigger bulk request_matching RPC
+// calls across all stuck bookings, causing unnecessary DB load and
+// potential matching system abuse.
 // ═══════════════════════════════════════════════════════════════
 
 const { createClient } = require('@supabase/supabase-js');
+
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -13,6 +20,24 @@ const supabase = createClient(
 );
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: { 'Access-Control-Allow-Origin': '*' } };
+  }
+
+  // Netlify Clockwork scheduled invocations include x-nf-event: schedule header.
+  // All manual HTTP calls must supply the x-internal-secret header.
+  const isScheduled =
+    event.headers?.['x-nf-event'] === 'schedule' ||
+    event.headers?.['user-agent']?.includes('Netlify Clockwork') ||
+    event.headers?.['user-agent']?.includes('Netlify');
+
+  if (!isScheduled) {
+    const callerSecret = (event.headers || {})['x-internal-secret'];
+    if (!INTERNAL_SECRET || callerSecret !== INTERNAL_SECRET) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+  }
+
   console.log('[reconcile-searching-bookings] Starting reconciliation check');
 
   try {

@@ -4,6 +4,9 @@
 //
 // This function processes bookings that have exhausted 5 matching attempts
 // and are now in FAILED_MATCH state. It issues Yoco refunds and notifies customers.
+//
+// SCHEMA FIX: The previous version queried a `customers` table that does not
+// exist in the schema. Customer emails live in the `profiles` table. Fixed.
 // ═══════════════════════════════════════════════════════════════
 
 const { createClient } = require('@supabase/supabase-js');
@@ -36,7 +39,7 @@ async function issueYocoRefund(providerPaymentId, amountCents) {
 
 exports.handler = async (event) => {
   // Allow both scheduled invocation (x-nf-event: schedule header) and manual HTTP trigger
-  const isScheduled = 
+  const isScheduled =
     event.headers?.['x-nf-event'] === 'schedule' ||
     event.headers?.['user-agent']?.includes('Netlify Clockwork') ||
     event.headers?.['user-agent']?.includes('Netlify');
@@ -116,7 +119,7 @@ exports.handler = async (event) => {
         if (payment.provider_payment_id && YOCO_SECRET_KEY) {
           try {
             await issueYocoRefund(payment.provider_payment_id, Math.round(Number(payment.amount || 0) * 100));
-            
+
             // Mark payment as refunded
             const { error: updateError } = await supabase.rpc('mark_payment_refunded', {
               p_booking_id: booking.id,
@@ -130,19 +133,21 @@ exports.handler = async (event) => {
               console.log(`[process-failed-match-refunds] Successfully refunded payment ${payment.id}`);
               refundedCount++;
 
-              // Get customer email
-              const { data: customer, error: customerError } = await supabase
-                .from('customers')
-                .select('email')
+              // SCHEMA FIX: Customer emails are in the `profiles` table, not `customers`.
+              // The `customers` table does not exist in schema.sql — querying it silently
+              // returned an error and suppressed refund confirmation emails.
+              const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('email, full_name')
                 .eq('id', booking.customer_id)
                 .maybeSingle();
 
-              if (!customerError && customer && customer.email) {
-                // Send refund email
+              if (!profileError && profile?.email) {
+                const greeting = profile.full_name ? `Hi ${profile.full_name.split(' ')[0]},` : 'Hi there,';
                 const emailHtml = `
                   <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                     <h2 style="color: #333;">We could not find a fixer — your refund is on the way</h2>
-                    <p>Hi there,</p>
+                    <p>${greeting}</p>
                     <p>We sincerely apologize, but we were unable to find a Fixer for your booking.</p>
                     <p>Your refund of <strong>R${Number(payment.amount || 0).toFixed(2)}</strong> is being processed and should appear in your account within <strong>3-5 business days</strong>.</p>
                     <p>Booking ID: <strong>${booking.id}</strong></p>
@@ -150,11 +155,13 @@ exports.handler = async (event) => {
                     <p>Best regards,<br>The Servit Team</p>
                   </div>
                 `;
-                await sendEmail(customer.email, 'We could not find a fixer — your refund is on the way', emailHtml)
+                await sendEmail(profile.email, 'We could not find a fixer — your refund is on the way', emailHtml)
                   .catch(e => console.warn('[process-failed-match-refunds] Failed to send refund email:', e.message));
+              } else {
+                console.warn(`[process-failed-match-refunds] No profile email for customer ${booking.customer_id} — skipping refund email`);
               }
 
-              // Notify customer
+              // Notify customer via in-app notification
               await supabase.from('notifications').insert({
                 user_id: booking.customer_id,
                 title: '💸 Refund Processed',
@@ -167,7 +174,7 @@ exports.handler = async (event) => {
             processedCount++;
           } catch (refundErr) {
             console.error(`[process-failed-match-refunds] Yoco refund failed for booking ${booking.id}:`, refundErr.message);
-            
+
             // Log failure for manual reconciliation
             await supabase.from('webhook_errors').insert({
               booking_id: booking.id,
@@ -175,7 +182,7 @@ exports.handler = async (event) => {
               error_msg: refundErr.message,
               created_at: new Date().toISOString(),
             }).catch(e => console.warn('[process-failed-match-refunds] Failed to log error:', e.message));
-            
+
             failedCount++;
           }
         } else {
